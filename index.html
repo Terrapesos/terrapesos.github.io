@@ -100,9 +100,9 @@ const TERRAPESOS_EDIT_PIN = "1808";
 const TERRAPESOS_TIERS = {
   d1000: { hex: "#4ADE80", label: "1.000" },
   d2000: { hex: "#A78BFA", label: "2.000" },
-  d5000: { hex: "#FB7185", label: "5.000" },
-  d10000: { hex: "#38BDF8", label: "10.000" },
-  d20000: { hex: "#FFC93C", label: "20.000" },
+  d5000: { hex: "#E879A6", label: "5.000" },
+  d10000: { hex: "#22D3EE", label: "10.000" },
+  d20000: { hex: "#E9C46A", label: "20.000" },
 };
 
 const TERRAPESOS_DEFAULT = {
@@ -316,6 +316,7 @@ const IMG = {
 
 const STYLES = `
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500;1,600&family=Manrope:wght@400;500;600;700;800&display=swap');
 
 .pf-app {
   --ink: #14151F;
@@ -849,6 +850,98 @@ footer.pf-footer { padding: 30px 0; text-align: center; color: var(--text-muted)
 .pf-tp-toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #262939; border: 1px solid #333650; color: #F8F6F0; padding: 12px 18px; border-radius: 10px; font-size: 14px; z-index: 9999; box-shadow: 0 8px 28px rgba(0,0,0,0.5); max-width: 92vw; }
 .pf-tp-toast button { margin-left: 12px; background: none; border: none; color: #A6A8BE; cursor: pointer; }
 
+/* ============================================================
+   ESTÉTICA DEUSIVENATURA (página principal) aplicada a Terrapesos
+   Azul noche, brillos violeta/cian, polvo de estrellas dorado,
+   Cinzel + Cormorant Garamond + Manrope, tarjetas de vidrio.
+   ============================================================ */
+.pf-app {
+  --ink: #080B14; --ink-2: #101629; --ink-3: #172038; --border: #29325A;
+  --gold: #E9C46A; --gold-soft: #E9C46A; --violet: #8B5CF6; --violet-soft: #A78BFA;
+  --cyan: #22D3EE; --teal: #2DD4BF; --coral: #E879A6; --danger: #FB7185;
+  --text: #F3F1EA; --text-muted: #A9B1CC;
+  font-family: 'Manrope', 'IBM Plex Sans', sans-serif;
+  background:
+    radial-gradient(1000px circle at 12% 0%, rgba(139,92,246,0.20), transparent 60%),
+    radial-gradient(900px circle at 100% 18%, rgba(34,211,238,0.13), transparent 60%),
+    radial-gradient(900px circle at 30% 100%, rgba(45,212,191,0.09), transparent 60%),
+    linear-gradient(180deg, #080B14 0%, #0B1020 55%, #080B14 100%);
+  background-attachment: fixed;
+}
+.pf-app::before { inset: 0; animation: none;
+  background-image: radial-gradient(rgba(233,196,106,0.55) 0.6px, transparent 1px), radial-gradient(rgba(255,255,255,0.35) 0.5px, transparent 1px);
+  background-size: 140px 140px, 90px 90px; background-position: 0 0, 40px 60px;
+  -webkit-mask-image: radial-gradient(ellipse at 50% 30%, #000 0%, transparent 78%); mask-image: radial-gradient(ellipse at 50% 30%, #000 0%, transparent 78%);
+  opacity: .28; }
+
+/* Barra superior */
+.pf-nav { background: rgba(8,11,20,0.82); backdrop-filter: blur(14px); border-bottom: 1px solid rgba(139,92,246,0.25); border-image: none; }
+.pf-logo-mark { border-radius: 12px; border: 1px solid rgba(233,196,106,0.5); box-shadow: 0 0 18px rgba(233,196,106,0.25); background: rgba(255,255,255,0.04); }
+.pf-logo-name { font-family: 'Cinzel', 'Cormorant Garamond', serif; font-size: 17px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text); background: none; -webkit-text-fill-color: currentColor; animation: none; }
+.pf-logo-sub { font-size: 11.5px; margin-top: 1px; }
+
+/* Portada de la sección */
+.pf-page-banner { border-radius: 20px; border: 1px solid rgba(139,92,246,0.25); box-shadow: 0 0 40px rgba(139,92,246,0.15); }
+.pf-page-banner::after { background: linear-gradient(180deg, rgba(8,11,20,0.05) 25%, rgba(8,11,20,0.9) 100%); }
+.pf-tp-hero { justify-content: center; text-align: center; margin: 8px 0 30px; }
+.pf-tp-hero > div { width: 100%; }
+.pf-section-head.pf-tp-hero h2 { font-family: 'Cinzel', 'Cormorant Garamond', serif; font-weight: 700; text-transform: uppercase; font-size: clamp(34px, 7vw, 72px); line-height: 1.04; letter-spacing: clamp(2px, .6vw, 8px);
+  color: #F7F3E6; background: linear-gradient(180deg, #FFFFFF 10%, #E9C46A 55%, #B98B33 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 24px rgba(139,92,246,0.55)); }
+.pf-tp-tagline { font-family: 'Cormorant Garamond', serif; font-style: italic; font-weight: 500; font-size: clamp(22px, 3vw, 30px); line-height: 1.2; margin-top: 4px;
+  background: linear-gradient(90deg, var(--violet-soft), var(--cyan)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.pf-title-rule { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 14px auto 12px; color: var(--gold); font-size: 12px; }
+.pf-title-rule::before, .pf-title-rule::after { content: ""; height: 1px; width: min(140px, 22vw); background: linear-gradient(90deg, transparent, var(--gold)); }
+.pf-title-rule::after { transform: scaleX(-1); }
+.pf-section-head.pf-tp-hero p { margin: 0 auto; max-width: 560px; }
+.pf-section-head.pf-tp-hero::after { display: none; }
+.pf-tp-toolbar { justify-content: center; }
+
+/* Tipografía */
+.pf-serif, .pf-tp-col-title, .pf-tp-group-title, .pf-quote-block p, .pf-tp-price, .pf-podium-price { font-family: 'Cormorant Garamond', serif; }
+.pf-tp-col-title { font-size: 23px; font-weight: 700; background: linear-gradient(90deg, #FFFFFF, #E9C46A 85%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.pf-tp-group-title { font-size: 20px; font-weight: 700; }
+.pf-tp-price { font-size: 19px; font-weight: 700; color: var(--gold); }
+.pf-tp-item.danger .pf-tp-price { color: var(--danger); }
+.pf-tp-callout-text { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 19px; line-height: 1.45; }
+.pf-eyebrow { color: var(--gold); text-shadow: none; letter-spacing: 1.5px; text-transform: uppercase; font-size: 12px; font-weight: 700; }
+.pf-tp-dot { box-shadow: 0 0 8px currentColor; }
+
+/* Componentes */
+.pf-tab { font-weight: 500; }
+.pf-tab.active { border-image: linear-gradient(90deg, var(--violet-soft), var(--cyan)) 1; text-shadow: none; color: #fff; font-weight: 700; }
+.pf-tabs { border-bottom-color: rgba(139,92,246,0.22); }
+.pf-tp-item { border-bottom-color: rgba(139,92,246,0.16); }
+.pf-chip { box-shadow: none; background: rgba(139,92,246,0.10); border-color: rgba(139,92,246,0.28); }
+.pf-btn { border-radius: 12px; letter-spacing: .2px; }
+.pf-btn-primary { background: linear-gradient(110deg, #A78BFA, #22D3EE); color: #080B14; box-shadow: 0 0 24px rgba(139,92,246,0.45), 0 6px 18px rgba(0,0,0,0.35); }
+.pf-btn-primary::after { opacity: .5; }
+.pf-btn-primary:hover { box-shadow: 0 0 34px rgba(34,211,238,0.5), 0 8px 24px rgba(0,0,0,0.4); transform: translateY(-2px); }
+.pf-btn-secondary { background: rgba(255,255,255,0.04); border: 1px solid rgba(233,196,106,0.55); color: var(--text); box-shadow: none; }
+.pf-btn-secondary:hover { border-color: var(--gold); box-shadow: 0 0 22px rgba(233,196,106,0.3); }
+.pf-select, .pf-input, textarea.pf-reflection, .pf-search-panel, .pf-tp-edit-input { background: rgba(16,22,41,0.78); border-color: rgba(139,92,246,0.28); }
+.pf-input:focus, .pf-select:focus { outline: none; border-color: var(--cyan); box-shadow: 0 0 16px rgba(34,211,238,0.25); }
+.pf-quote-block { border-left: 3px solid var(--gold); box-shadow: -8px 0 28px rgba(233,196,106,0.12); background: rgba(16,22,41,0.7); border-color: rgba(139,92,246,0.22); border-left-color: var(--gold); border-radius: 14px; }
+.pf-ticker { background: rgba(16,22,41,0.7); border-color: rgba(233,196,106,0.35); box-shadow: 0 0 22px rgba(233,196,106,0.10); border-radius: 14px; }
+.pf-ticker-price { color: var(--gold); }
+.pf-section { border-bottom: 1px solid rgba(139,92,246,0.14); }
+.pf-tp-adjust { background: rgba(16,22,41,0.8); border-radius: 10px; }
+.pf-tp-adjust-panel { background: linear-gradient(160deg, rgba(139,92,246,0.14), rgba(34,211,238,0.06)); border-color: rgba(139,92,246,0.4); border-radius: 16px; }
+.pf-tp-toast { background: rgba(16,22,41,0.95); border-color: rgba(139,92,246,0.4); box-shadow: 0 0 30px rgba(139,92,246,0.25), 0 8px 28px rgba(0,0,0,0.5); backdrop-filter: blur(8px); }
+footer.pf-footer { letter-spacing: .5px; }
+
+/* Podio */
+.pf-podium-item { background: linear-gradient(160deg, rgba(23,32,56,0.85), rgba(12,17,32,0.9)); border: 1px solid rgba(139,92,246,0.28); border-radius: 16px 16px 0 0; }
+.pf-podium-item.first { border-color: rgba(233,196,106,0.6); box-shadow: 0 -4px 0 var(--gold) inset, 0 0 30px rgba(139,92,246,0.3); animation: pf-rise 0.8s cubic-bezier(.2,.9,.3,1.1) 0.5s both; }
+.pf-podium-price { font-size: 18px; color: var(--gold); }
+
+/* Spinozito con los colores de la página */
+.pf-spinozito-fab { background: linear-gradient(155deg, #A78BFA, #22D3EE); box-shadow: 0 8px 24px rgba(0,0,0,0.35), 0 0 22px rgba(139,92,246,0.5); }
+.pf-spinozito-fab:hover { box-shadow: 0 8px 24px rgba(0,0,0,0.35), 0 0 32px rgba(34,211,238,0.6); }
+.pf-spinozito-panel, .pf-spinozito-quickmenu, .pf-spinozito-bubble { background: rgba(16,22,41,0.96); border-color: rgba(139,92,246,0.35); backdrop-filter: blur(10px); }
+
+@media (prefers-reduced-motion: reduce) { .pf-podium-item.first { animation: none !important; } }
+
 `;
 
 function TpEditableText({ value, onChange, tpEditing }) {
@@ -1139,7 +1232,7 @@ function TerrapesosApp() {
             <div className="pf-ticker-track">
               {[...tickerItems, ...tickerItems].map((it, i) => (
                 <span className="pf-ticker-item" key={i}>
-                  <Coins size={13} color="#FFC93C" />
+                  <Coins size={13} color="#E9C46A" />
                   {it.label}
                   <span className="pf-ticker-price">{showTp(it.price)}</span>
                   <span className="pf-ticker-sep">•</span>
@@ -1149,10 +1242,12 @@ function TerrapesosApp() {
           </div>
         )}
 
-        <div className="pf-section-head">
+        <div className="pf-section-head pf-tp-hero">
           <div>
             <h2>Terrapesos</h2>
-            <p>Sistema de incentivos del curso · Colegio Quillota Terranova · Banco Terranova</p>
+            <div className="pf-tp-tagline">el monedero de la clase</div>
+            <div className="pf-title-rule">◆</div>
+            <p>Sistema de incentivos para todas las asignaturas · Colegio Quillota Terranova · Banco Terranova</p>
           </div>
         </div>
 
@@ -1202,7 +1297,7 @@ function TerrapesosApp() {
               </div>
             </div>
             <div className="pf-quote-block" style={{ marginTop: 22, alignItems: "flex-start" }}>
-              <Coins size={20} color="#FFC93C" style={{ flexShrink: 0, marginTop: 3 }} />
+              <Coins size={20} color="#E9C46A" style={{ flexShrink: 0, marginTop: 3 }} />
               <div style={{ flex: 1 }}>
                 <div className="pf-eyebrow" style={{ marginBottom: 6 }}>Ejemplo</div>
                 <TpEditableText tpEditing={tpEditing} value={d.exampleText} onChange={(v) => setTpData((s) => ({ ...s, exampleText: v }))} />
@@ -1214,7 +1309,7 @@ function TerrapesosApp() {
         {tpTab === "ganar" && (
           <>
             <div className="pf-quote-block" style={{ marginBottom: 26, alignItems: "flex-start" }}>
-              <Coins size={20} color="#FFC93C" style={{ flexShrink: 0, marginTop: 3 }} />
+              <Coins size={20} color="#E9C46A" style={{ flexShrink: 0, marginTop: 3 }} />
               <div style={{ flex: 1 }}>
                 <div className="pf-eyebrow" style={{ marginBottom: 6 }}>Importante</div>
                 <TpEditableText tpEditing={tpEditing} value={d.importantText} onChange={(v) => setTpData((s) => ({ ...s, importantText: v }))} />
@@ -1239,7 +1334,7 @@ function TerrapesosApp() {
             })}
 
             <div className="pf-quote-block" style={{ marginTop: 8, alignItems: "flex-start" }}>
-              <Info size={20} color="#FFC93C" style={{ flexShrink: 0, marginTop: 3 }} />
+              <Info size={20} color="#E9C46A" style={{ flexShrink: 0, marginTop: 3 }} />
               <div style={{ flex: 1 }}>
                 <div className="pf-eyebrow" style={{ marginBottom: 6 }}>Cómo funciona</div>
                 <TpEditableText tpEditing={tpEditing} value={d.funcionaText} onChange={(v) => setTpData((s) => ({ ...s, funcionaText: v }))} />
