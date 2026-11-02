@@ -133,6 +133,10 @@ const MOVIMIENTOS_KEY = "terrapesos-movimientos";
 // Cuenta Google ↔ estudiante: mismas claves que usa Deusivenatura (el vínculo se comparte).
 const perfilKey = (uid) => "perfil-" + uid;
 const vinculoKey = (cursoId, nombre) => "vinculo-" + cursoId + "-" + String(nombre).replace(/[\/\s.]+/g, "_");
+// Cuenta de prueba del profesor: curso oculto (no aparece en rankings ni para vincularse).
+const TP_CURSO_PRUEBA = "pruebas-profe";
+const TP_EST_PRUEBA = "Profe (cuenta de prueba)";
+const TP_SALDO_PRUEBA = 10000000;
 const numTp = (p) => parseInt(String(p).replace(/[.\s]/g, ""), 10) || 0;
 // Historial: máximo 150, pero nunca se borra un canje que aún no se entrega.
 const recortarMovs = (l) => l.slice(0, 150).concat(l.slice(150).filter((m) => m && m.tipo === "canje" && m.estado === "pendiente"));
@@ -1316,7 +1320,9 @@ function TerrapesosApp() {
        como entregado o lo devuelve (reintegra los terrapesos).
      ============================================================ */
   const [tpUser, setTpUser] = useState(null);
-  const [tpPerfil, setTpPerfil] = useState(null);
+  const [tpPerfilGuardado, setTpPerfil] = useState(null);
+  // El profesor no se vincula a un estudiante: usa automáticamente su cuenta de prueba.
+  const tpPerfil = tpPerfilGuardado || (tpUser && tpUser.esAdmin ? { uid: tpUser.uid, curso: TP_CURSO_PRUEBA, nombre: TP_EST_PRUEBA, prueba: true } : null);
   const [tpSesionLista, setTpSesionLista] = useState(false);
   const [tpAuthErr, setTpAuthErr] = useState("");
   const [tpVinc, setTpVinc] = useState({ curso: "", nombre: "" });
@@ -1354,6 +1360,28 @@ function TerrapesosApp() {
       tpRecargar();
     });
   }, []);
+
+  const tpAsegurarPrueba = async (forzarSaldo) => {
+    try {
+      const res = await window.storage.get(TERRAPESOS_STORAGE_KEY, true);
+      const latest = { ...TERRAPESOS_DEFAULT, ...JSON.parse(res.value) };
+      const cursos = latest.estudiantesPorCurso || [];
+      const c = cursos.find((x) => x.id === TP_CURSO_PRUEBA);
+      const e = c && c.estudiantes.find((x) => x.label === TP_EST_PRUEBA);
+      if (e && !forzarSaldo) { if (!tpEditing) setTpData(latest); return; }
+      const est = { label: TP_EST_PRUEBA, price: fmtTp(TP_SALDO_PRUEBA) };
+      const nuevos = c
+        ? cursos.map((x) => x.id !== TP_CURSO_PRUEBA ? x : { ...x, oculto: true, estudiantes: e ? x.estudiantes.map((y) => (y.label === TP_EST_PRUEBA ? est : y)) : [...x.estudiantes, est] })
+        : [...cursos, { id: TP_CURSO_PRUEBA, nombre: "Pruebas (profe)", oculto: true, estudiantes: [est] }];
+      const updated = { ...latest, estudiantesPorCurso: nuevos };
+      await window.storage.set(TERRAPESOS_STORAGE_KEY, JSON.stringify(updated), true);
+      if (!tpEditing) setTpData(updated);
+      if (forzarSaldo) setToast("Cuenta de prueba recargada a " + fmtTp(TP_SALDO_PRUEBA) + " terrapesos.");
+    } catch (err) {
+      setToast("No se pudo preparar la cuenta de prueba. Intenta recargar la página.");
+    }
+  };
+  useEffect(() => { if (tpUser && tpUser.esAdmin) tpAsegurarPrueba(false); }, [tpUser && tpUser.uid]);
 
   const tpEntrar = async () => { setTpAuthErr(""); const msg = await window.tpAuth.entrar(); if (msg) setTpAuthErr(msg); };
   const tpSalir = async () => { await window.tpAuth.salir(); setTpUser(null); setTpPerfil(null); };
@@ -1487,7 +1515,7 @@ function TerrapesosApp() {
     }
     if (!tpPerfil) {
       if (tpUser.esAdmin) return null; // el profesor no se vincula a un estudiante
-      const cursos = tpData.estudiantesPorCurso || [];
+      const cursos = (tpData.estudiantesPorCurso || []).filter((c) => !c.oculto);
       const cursoObj = cursos.find((c) => c.id === tpVinc.curso);
       return (
         <div className="pf-tp-wallet column">
@@ -1523,8 +1551,9 @@ function TerrapesosApp() {
         <div style={{ display: "flex", alignItems: "center", gap: 14, width: "100%", flexWrap: "wrap" }}>
           {tpUser.foto ? <img className="pf-tp-wallet-foto" src={tpUser.foto} alt="" referrerPolicy="no-referrer" /> : <div className="pf-tp-wallet-ico"><Wallet size={22} /></div>}
           <div style={{ flex: 1, minWidth: 160 }}>
-            <div className="pf-tp-wallet-title">Hola, {tpPerfil.nombre.split(" ")[0]}</div>
-            <div className="pf-muted" style={{ fontSize: 13 }}>{tpPerfil.nombre}{cursoNom ? " · " + cursoNom : ""}</div>
+            <div className="pf-tp-wallet-title">{tpPerfil.prueba ? "Cuenta de prueba" : "Hola, " + tpPerfil.nombre.split(" ")[0]}</div>
+            <div className="pf-muted" style={{ fontSize: 13 }}>{tpPerfil.prueba ? "Solo tú la ves. Canjea para probar; luego entrega o devuelve los canjes." : tpPerfil.nombre + (cursoNom ? " · " + cursoNom : "")}</div>
+            {tpPerfil.prueba && <button className="pf-link-btn" style={{ marginTop: 4 }} disabled={tpBusy} onClick={() => tpAsegurarPrueba(true)}>Recargar a {fmtTp(TP_SALDO_PRUEBA)}</button>}
           </div>
           <div className="pf-tp-wallet-saldo">
             <span className="n">{tpMiSaldo === null ? "—" : fmtTp(tpMiSaldo)}</span>
@@ -1729,7 +1758,7 @@ function TerrapesosApp() {
 
         {tpTab === "estudiantes" && (() => {
           const parseSaldo = (s) => parseInt(String(s).replace(/[.\s]/g, ""), 10) || 0;
-          const cursos = d.estudiantesPorCurso || [];
+          const cursos = (d.estudiantesPorCurso || []).filter((c) => !c.oculto || tpEditing);
           const cursoActivo = cursos.find((c) => c.id === tpCursoSeleccionado) || cursos[0];
           const conIndice = cursoActivo ? cursoActivo.estudiantes.map((e, i) => ({ ...e, _i: i })) : [];
           const filtrados = conIndice.filter((e) => !tpStudentSearch.trim() || e.label.toLowerCase().includes(tpStudentSearch.trim().toLowerCase()));
@@ -1862,7 +1891,7 @@ function TerrapesosApp() {
             <div className="pf-tp-col-desc">Cada vez que se suman, restan o canjean terrapesos queda registrado aquí.</div>
             {tpMovs === null && <p className="pf-muted" style={{ fontSize: 13 }}>Cargando…</p>}
             {tpMovs && tpMovs.length === 0 && <p className="pf-muted" style={{ fontSize: 13.5 }}>Todavía no hay movimientos registrados.</p>}
-            {(tpMovs || []).map((m, i) => (
+            {(tpMovs || []).filter((m) => tpEsProfe || (m.cursoId !== TP_CURSO_PRUEBA && m.nombre !== TP_EST_PRUEBA)).map((m, i) => (
               <div className="pf-tp-item" key={i}>
                 <div className="pf-tp-body">
                   <div className="pf-tp-label">{m.nombre} <span className="pf-muted" style={{ fontSize: 12 }}>· {m.curso}</span></div>
