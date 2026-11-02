@@ -25,7 +25,7 @@
 <script type="text/babel" data-presets="react" data-type="module">
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-import { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+import { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs, runTransaction } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 
 /* ------------------------------------------------------------
@@ -125,6 +125,21 @@ window.tpAuth = {
   },
   async salir() { try { await signOut(fbAuth); } catch (e) {} },
 };
+
+/* Transacción sobre un documento de "shared": fn(textoActual|null) devuelve
+   el texto JSON nuevo, o undefined para no escribir. Evita pisar cambios
+   hechos al mismo tiempo por Deusivenatura o Filocaptura. */
+window.tpTx = (key, fn) => {
+  const ref = doc(db, "shared", key);
+  return runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    const cur = snap.exists() ? snap.data().value : null;
+    const nuevo = fn(cur);
+    if (nuevo === undefined) return cur;
+    tx.set(ref, { value: nuevo });
+    return nuevo;
+  });
+};
 import React, { useState, useMemo, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { Coins, Pencil, Save, Plus, Trash2, Check, X, ArrowRight, Info, Wallet, ShoppingBag, LogIn, LogOut, Clock, Undo2, CheckCircle2 } from "lucide-react";
@@ -137,6 +152,68 @@ const vinculoKey = (cursoId, nombre) => "vinculo-" + cursoId + "-" + String(nomb
 const TP_CURSO_PRUEBA = "pruebas-profe";
 const TP_EST_PRUEBA = "Profe (cuenta de prueba)";
 const TP_SALDO_PRUEBA = 10000000;
+const cuponesKey = (uid) => "cupones-" + uid;
+const usoKey = (code) => "uso-" + code;
+const mascotaKey = (uid) => "mascota-" + uid;
+// Transacción sobre shared/<key> (window.tpTx viene de la cabecera; sin ella, lee y escribe).
+async function tpStorageUpdate(key, fn) {
+  if (window.tpTx) return window.tpTx(key, fn);
+  let cur = null;
+  try { const r = await window.storage.get(key, true); cur = r.value; } catch (e) { cur = null; }
+  const nuevo = fn(cur);
+  if (nuevo === undefined) return cur;
+  await window.storage.set(key, nuevo, true);
+  return nuevo;
+}
+// Cupón: código sin caracteres confusos (sin 0/O/1/I), formato ABCD-2345.
+function generarCodigo() {
+  const A = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const b = new Uint8Array(8);
+  try { crypto.getRandomValues(b); } catch (e) { for (let i = 0; i < 8; i++) b[i] = Math.floor(Math.random() * 256); }
+  const c = Array.from(b).map((v) => A[v % A.length]).join("");
+  return c.slice(0, 4) + "-" + c.slice(4);
+}
+const fechaLarga = (iso) => { try { return new Date(iso).toLocaleDateString("es-CL", { day: "2-digit", month: "2-digit", year: "numeric" }); } catch (e) { return ""; } };
+const SPR_DIR = { owl: "buho", fox: "zorro", wolf: "lobo", raven: "cuervo" };
+const SPR_ETAPAS = ["huevo", "cria", "joven", "adulto", "ancestral"];
+const spriteUrl = (esp, etapa) => "https://fernandodelgadillo13.github.io/Deusivenatura/sprites/" + SPR_DIR[esp] + "/" + SPR_ETAPAS[(etapa || 2) - 1] + "/" + ((etapa || 2) === 1 ? "01-huevo" : "01-reposo") + ".webp";
+// Imagen del cupón (canvas 960×440 → PNG). pet = {esp, etapa} o null.
+async function cuponImagen(c, pet) {
+  const W = 960, H = 440;
+  const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+  const x = cv.getContext("2d");
+  const rr = (a, b, w, h, r) => { x.beginPath(); x.moveTo(a + r, b); x.arcTo(a + w, b, a + w, b + h, r); x.arcTo(a + w, b + h, a, b + h, r); x.arcTo(a, b + h, a, b, r); x.arcTo(a, b, a + w, b, r); x.closePath(); };
+  const envolver = (txt, maxW, maxL) => { const out = []; let cur = ""; String(txt).split(" ").forEach((p) => { const t = cur ? cur + " " + p : p; if (x.measureText(t).width > maxW && cur) { out.push(cur); cur = p; } else cur = t; }); if (cur) out.push(cur); return out.slice(0, maxL); };
+  const g = x.createLinearGradient(0, 0, W, H); g.addColorStop(0, "#2b1f63"); g.addColorStop(0.6, "#141a45"); g.addColorStop(1, "#0a0e2a");
+  rr(0, 0, W, H, 28); x.fillStyle = g; x.fill();
+  x.lineWidth = 6; x.strokeStyle = "#f5c542"; rr(10, 10, W - 20, H - 20, 22); x.stroke();
+  x.lineWidth = 2; x.setLineDash([8, 8]); x.strokeStyle = "rgba(245,197,66,.45)"; rr(26, 26, W - 52, H - 52, 16); x.stroke();
+  const px = 690;
+  x.strokeStyle = "rgba(255,255,255,.35)"; x.setLineDash([6, 9]); x.beginPath(); x.moveTo(px, 40); x.lineTo(px, H - 40); x.stroke(); x.setLineDash([]);
+  x.fillStyle = "#f5c542"; x.font = "700 18px system-ui, sans-serif"; try { x.letterSpacing = "3px"; } catch (e) {}
+  x.fillText("TERRAPESOS · CUPÓN DE CANJE", 60, 76);
+  try { x.letterSpacing = "0px"; } catch (e) {}
+  x.fillStyle = "#ffffff"; x.font = "700 40px Georgia, serif";
+  const L = envolver(c.label, 590, 3); L.forEach((t, i) => x.fillText(t, 60, 142 + i * 50));
+  let y = 142 + L.length * 50 + 4;
+  if (c.note) { x.fillStyle = "#cbd5ff"; x.font = "400 21px system-ui, sans-serif"; envolver(c.note, 590, 2).forEach((t, i) => x.fillText(t, 60, y + i * 28)); }
+  x.fillStyle = "#f5d98b"; x.font = "600 26px system-ui, sans-serif"; x.fillText("Para: " + c.nombre, 60, H - 98);
+  x.fillStyle = "#cbd5ff"; x.font = "400 20px system-ui, sans-serif"; x.fillText(String(c.cursoNombre || "") + " · " + fechaLarga(c.fecha) + " · " + fmtTp(c.precio) + " terrapesos", 60, H - 66);
+  x.fillStyle = "rgba(255,255,255,.65)"; x.font = "italic 18px system-ui, sans-serif"; x.fillText("Válido una sola vez. Muéstraselo a tu profesor.", 60, H - 40);
+  const cx = px + (W - px) / 2;
+  if (pet) {
+    const im = new Image();
+    await new Promise((res) => { im.crossOrigin = "anonymous"; im.onload = res; im.onerror = res; im.src = spriteUrl(pet.esp, pet.etapa); });
+    if (im.naturalWidth) { const k = Math.min(210 / im.naturalWidth, 220 / im.naturalHeight); const w = im.naturalWidth * k, h = im.naturalHeight * k; x.drawImage(im, cx - w / 2, 250 - h, w, h); }
+  }
+  x.textAlign = "center"; x.fillStyle = "#f5c542"; x.font = "700 15px system-ui, sans-serif"; try { x.letterSpacing = "3px"; } catch (e) {}
+  x.fillText("CÓDIGO", cx, 292); try { x.letterSpacing = "0px"; } catch (e) {}
+  x.fillStyle = "#ffffff"; x.font = "700 36px ui-monospace, Menlo, Consolas, monospace"; x.fillText(c.code, cx, 340);
+  x.textAlign = "left";
+  x.globalCompositeOperation = "destination-out"; x.beginPath(); x.arc(px, 0, 20, 0, Math.PI * 2); x.fill(); x.beginPath(); x.arc(px, H, 20, 0, Math.PI * 2); x.fill(); x.globalCompositeOperation = "source-over";
+  try { return cv.toDataURL("image/png"); }
+  catch (e) { return cuponImagen(c, null); } // si la mascota "ensucia" el canvas, se dibuja sin ella
+}
 const numTp = (p) => parseInt(String(p).replace(/[.\s]/g, ""), 10) || 0;
 // Historial: máximo 150, pero nunca se borra un canje que aún no se entrega.
 const recortarMovs = (l) => l.slice(0, 150).concat(l.slice(150).filter((m) => m && m.tipo === "canje" && m.estado === "pendiente"));
@@ -993,6 +1070,15 @@ footer.pf-footer { letter-spacing: .5px; }
 @media (prefers-reduced-motion: reduce) { .pf-podium-item.first { animation: none !important; } }
 
 /* ---------- Tienda / monedero del estudiante ---------- */
+.pf-tp-saldo-chip { display: inline-flex; align-items: baseline; gap: 6px; padding: 7px 14px; border-radius: 999px; background: rgba(233,196,106,.10); border: 1px solid rgba(233,196,106,.5); font-size: 13.5px; color: var(--text); }
+.pf-tp-saldo-chip b { font-family: 'Cinzel', 'Cormorant Garamond', serif; font-size: 20px; color: var(--gold); }
+.pf-tp-confirm-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; align-self: center; }
+.pf-tp-confirm-row .q { font-size: 12.5px; color: var(--text); font-weight: 600; }
+.pf-tp-buy.off.no { cursor: pointer; color: var(--text); }
+.pf-tp-cupon-panel { max-width: 720px; }
+.pf-tp-cupon-img { display: block; width: 100%; height: auto; border-radius: 14px; }
+a.pf-btn { text-decoration: none; }
+.mono { font-family: ui-monospace, Menlo, Consolas, monospace; letter-spacing: .5px; }
 .pf-tp-wallet { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 0 0 24px; padding: 18px 20px; border-radius: 18px;
   background: linear-gradient(160deg, rgba(139,92,246,.14), rgba(34,211,238,.07)); border: 1px solid rgba(139,92,246,.35); backdrop-filter: blur(6px); box-shadow: 0 0 30px rgba(139,92,246,.12); }
 .pf-tp-wallet.column { flex-direction: column; align-items: flex-start; }
@@ -1124,8 +1210,9 @@ function TerrapesosApp() {
   const tpSave = async () => {
     setTpEditing(false);
     try {
-      const res = await window.storage.get(TERRAPESOS_STORAGE_KEY, true);
-      const latest = res && res.value ? { ...TERRAPESOS_DEFAULT, ...JSON.parse(res.value) } : tpData;
+      let finalData = null;
+      await tpStorageUpdate(TERRAPESOS_STORAGE_KEY, (cur) => {
+      const latest = cur ? { ...TERRAPESOS_DEFAULT, ...JSON.parse(cur) } : tpData;
 
       // Para los saldos de estudiantes, evitamos pisar premios ganados en
       // juegos mientras se editaba: partimos de los datos más recientes del
@@ -1149,8 +1236,11 @@ function TerrapesosApp() {
         return { ...editedCurso, estudiantes: mergedEstudiantes };
       });
 
-      const finalData = { ...tpData, estudiantesPorCurso: mergedEstudiantesPorCurso };
-      await window.storage.set(TERRAPESOS_STORAGE_KEY, JSON.stringify(finalData), true);
+      // Los cursos que solo existen en el servidor (p. ej. creados mientras se editaba) se conservan.
+      const soloServidor = (latest.estudiantesPorCurso || []).filter((c) => !tpData.estudiantesPorCurso.some((x) => x.id === c.id) && !(tpSnapshot?.estudiantesPorCurso || []).some((x) => x.id === c.id));
+      finalData = { ...tpData, estudiantesPorCurso: [...mergedEstudiantesPorCurso.filter((c) => tpData.estudiantesPorCurso.some((x) => x.id === c.id)), ...tpData.estudiantesPorCurso.filter((c) => !(latest.estudiantesPorCurso || []).some((x) => x.id === c.id)), ...soloServidor] };
+      return JSON.stringify(finalData);
+      });
       setTpData(finalData);
       setToast("Cambios de Terrapesos guardados ✓ (visibles para todos los estudiantes)");
     } catch (e) {
@@ -1270,22 +1360,24 @@ function TerrapesosApp() {
   const tpAjustar = async (curso, nombre, delta) => {
     if (!delta) { setToast("Escribe un monto distinto de 0."); return; }
     try {
-      const res = await window.storage.get(TERRAPESOS_STORAGE_KEY, true);
-      const latest = res && res.value ? { ...TERRAPESOS_DEFAULT, ...JSON.parse(res.value) } : tpData;
       let nuevoSaldo = null;
-      const updated = {
-        ...latest,
-        estudiantesPorCurso: latest.estudiantesPorCurso.map((c) =>
-          c.id === curso.id
-            ? { ...c, estudiantes: c.estudiantes.map((e) => {
-                if (e.label === nombre) { nuevoSaldo = addTerrapesos(e.price, delta); return { ...e, price: nuevoSaldo }; }
-                return e;
-              }) }
-            : c
-        ),
-      };
+      await tpStorageUpdate(TERRAPESOS_STORAGE_KEY, (cur) => {
+        nuevoSaldo = null;
+        const latest = cur ? { ...TERRAPESOS_DEFAULT, ...JSON.parse(cur) } : tpData;
+        const updated = {
+          ...latest,
+          estudiantesPorCurso: latest.estudiantesPorCurso.map((c) =>
+            c.id === curso.id
+              ? { ...c, estudiantes: c.estudiantes.map((e) => {
+                  if (e.label === nombre) { nuevoSaldo = addTerrapesos(e.price, delta); return { ...e, price: nuevoSaldo }; }
+                  return e;
+                }) }
+              : c
+          ),
+        };
+        return nuevoSaldo === null ? undefined : JSON.stringify(updated);
+      });
       if (nuevoSaldo === null) { setToast("No se encontró al estudiante en los datos guardados."); return; }
-      await window.storage.set(TERRAPESOS_STORAGE_KEY, JSON.stringify(updated), true);
       const aplicar = (d) => d && ({
         ...d,
         estudiantesPorCurso: d.estudiantesPorCurso.map((c) =>
@@ -1311,13 +1403,13 @@ function TerrapesosApp() {
   };
 
   /* ============================================================
-     SESIÓN GOOGLE + TIENDA (canjes individuales)
-     - El estudiante entra con Google y queda vinculado a su nombre
-       (vínculo compartido con Deusivenatura).
-     - Canjear descuenta de inmediato el saldo y deja el canje
-       "por entregar" en el historial de movimientos.
-     - El profesor (correo admin o modo edición) marca cada canje
-       como entregado o lo devuelve (reintegra los terrapesos).
+     SESIÓN GOOGLE + CANJE CON CUPÓN (compatible con Deusivenatura)
+     - Quién es el estudiante: perfil-<uid>, creado en Deusivenatura.
+     - Canjear: descuenta con transacción y guarda el cupón en
+       cupones-<uid> ({"uid":"<uid>","items":[...]}, uid primero).
+     - Usado / Vigente: existe o no uso-<código> (lo marca el profesor
+       en el Panel docente de Deusivenatura; aquí solo se lee).
+     - Profesor: usa una cuenta de prueba oculta con 10.000.000.
      ============================================================ */
   const [tpUser, setTpUser] = useState(null);
   const [tpPerfilGuardado, setTpPerfil] = useState(null);
@@ -1325,9 +1417,12 @@ function TerrapesosApp() {
   const tpPerfil = tpPerfilGuardado || (tpUser && tpUser.esAdmin ? { uid: tpUser.uid, curso: TP_CURSO_PRUEBA, nombre: TP_EST_PRUEBA, prueba: true } : null);
   const [tpSesionLista, setTpSesionLista] = useState(false);
   const [tpAuthErr, setTpAuthErr] = useState("");
-  const [tpVinc, setTpVinc] = useState({ curso: "", nombre: "" });
-  const [tpCompra, setTpCompra] = useState(null);
+  const [tpConfirmar, setTpConfirmar] = useState(null); // índice del beneficio que se está confirmando
   const [tpBusy, setTpBusy] = useState(false);
+  const [tpMsgCanje, setTpMsgCanje] = useState("");
+  const [tpCupones, setTpCupones] = useState(null);
+  const [tpCuponVer, setTpCuponVer] = useState(null); // { cup, url }
+  const [tpPet, setTpPet] = useState(null);
 
   const tpRecargar = async () => {
     try {
@@ -1341,10 +1436,19 @@ function TerrapesosApp() {
     return null;
   };
 
+  const tpCargarCupones = async (uid) => {
+    let items = [];
+    try { const r = await window.storage.get(cuponesKey(uid), true); items = (JSON.parse(r.value).items || []); } catch (e) { items = []; }
+    const conEstado = await Promise.all(items.map(async (c) => {
+      try { await window.storage.get(usoKey(c.code), true); return { ...c, usado: true }; } catch (e) { return { ...c, usado: false }; }
+    }));
+    setTpCupones(conEstado);
+  };
+
   useEffect(() => {
     if (!window.tpAuth) { setTpSesionLista(true); return; }
     return window.tpAuth.onChange(async (u) => {
-      if (!u) { setTpUser(null); setTpPerfil(null); setTpSesionLista(true); return; }
+      if (!u) { setTpUser(null); setTpPerfil(null); setTpCupones(null); setTpPet(null); setTpSesionLista(true); return; }
       if (!u.permitido) {
         setTpAuthErr("Usa tu cuenta institucional. La cuenta " + u.email + " no está permitida.");
         await window.tpAuth.salir();
@@ -1352,30 +1456,30 @@ function TerrapesosApp() {
       }
       setTpAuthErr("");
       setTpUser(u);
-      try {
-        const r = await window.storage.get(perfilKey(u.uid), true);
-        setTpPerfil(JSON.parse(r.value));
-      } catch (e) { setTpPerfil(null); }
+      try { const r = await window.storage.get(perfilKey(u.uid), true); setTpPerfil(JSON.parse(r.value)); } catch (e) { setTpPerfil(null); }
+      try { const r = await window.storage.get(mascotaKey(u.uid), true); const m = JSON.parse(r.value); setTpPet(m && SPR_DIR[m.especie] ? { esp: m.especie, etapa: m.etapa || 2 } : null); } catch (e) { setTpPet(null); }
       setTpSesionLista(true);
       tpRecargar();
+      tpCargarCupones(u.uid);
     });
   }, []);
 
+  // Cuenta de prueba del profesor (curso oculto), creada con transacción.
   const tpAsegurarPrueba = async (forzarSaldo) => {
     try {
-      const res = await window.storage.get(TERRAPESOS_STORAGE_KEY, true);
-      const latest = { ...TERRAPESOS_DEFAULT, ...JSON.parse(res.value) };
-      const cursos = latest.estudiantesPorCurso || [];
-      const c = cursos.find((x) => x.id === TP_CURSO_PRUEBA);
-      const e = c && c.estudiantes.find((x) => x.label === TP_EST_PRUEBA);
-      if (e && !forzarSaldo) { if (!tpEditing) setTpData(latest); return; }
-      const est = { label: TP_EST_PRUEBA, price: fmtTp(TP_SALDO_PRUEBA) };
-      const nuevos = c
-        ? cursos.map((x) => x.id !== TP_CURSO_PRUEBA ? x : { ...x, oculto: true, estudiantes: e ? x.estudiantes.map((y) => (y.label === TP_EST_PRUEBA ? est : y)) : [...x.estudiantes, est] })
-        : [...cursos, { id: TP_CURSO_PRUEBA, nombre: "Pruebas (profe)", oculto: true, estudiantes: [est] }];
-      const updated = { ...latest, estudiantesPorCurso: nuevos };
-      await window.storage.set(TERRAPESOS_STORAGE_KEY, JSON.stringify(updated), true);
-      if (!tpEditing) setTpData(updated);
+      const nuevo = await tpStorageUpdate(TERRAPESOS_STORAGE_KEY, (cur) => {
+        const latest = { ...TERRAPESOS_DEFAULT, ...(cur ? JSON.parse(cur) : {}) };
+        const cursos = latest.estudiantesPorCurso || [];
+        const c = cursos.find((x) => x.id === TP_CURSO_PRUEBA);
+        const e = c && c.estudiantes.find((x) => x.label === TP_EST_PRUEBA);
+        if (e && !forzarSaldo) return undefined;
+        const est = { label: TP_EST_PRUEBA, price: fmtTp(TP_SALDO_PRUEBA) };
+        const nuevos = c
+          ? cursos.map((x) => x.id !== TP_CURSO_PRUEBA ? x : { ...x, oculto: true, estudiantes: e ? x.estudiantes.map((y) => (y.label === TP_EST_PRUEBA ? est : y)) : [...x.estudiantes, est] })
+          : [...cursos, { id: TP_CURSO_PRUEBA, nombre: "Pruebas (profe)", oculto: true, estudiantes: [est] }];
+        return JSON.stringify({ ...latest, estudiantesPorCurso: nuevos });
+      });
+      if (nuevo && !tpEditing) setTpData({ ...TERRAPESOS_DEFAULT, ...JSON.parse(nuevo) });
       if (forzarSaldo) setToast("Cuenta de prueba recargada a " + fmtTp(TP_SALDO_PRUEBA) + " terrapesos.");
     } catch (err) {
       setToast("No se pudo preparar la cuenta de prueba. Intenta recargar la página.");
@@ -1384,225 +1488,163 @@ function TerrapesosApp() {
   useEffect(() => { if (tpUser && tpUser.esAdmin) tpAsegurarPrueba(false); }, [tpUser && tpUser.uid]);
 
   const tpEntrar = async () => { setTpAuthErr(""); const msg = await window.tpAuth.entrar(); if (msg) setTpAuthErr(msg); };
-  const tpSalir = async () => { await window.tpAuth.salir(); setTpUser(null); setTpPerfil(null); };
-
-  const tpVincular = async () => {
-    const { curso, nombre } = tpVinc;
-    if (!tpUser || !curso || !nombre) return;
-    setTpBusy(true);
-    try {
-      try {
-        const r = await window.storage.get(vinculoKey(curso, nombre), true);
-        const v = JSON.parse(r.value);
-        if (v && v.uid && v.uid !== tpUser.uid) { setToast("Ese nombre ya está vinculado a otra cuenta. Si es un error, avísale a tu profesor/a."); return; }
-      } catch (e) { /* sin vínculo previo */ }
-      const fecha = new Date().toISOString();
-      const perfil = { uid: tpUser.uid, email: tpUser.email, curso, nombre, fecha };
-      await window.storage.set(vinculoKey(curso, nombre), JSON.stringify({ uid: tpUser.uid, curso, nombre, fecha }), true);
-      await window.storage.set(perfilKey(tpUser.uid), JSON.stringify(perfil), true);
-      setTpPerfil(perfil);
-      setToast("¡Listo, " + nombre.split(" ")[0] + "! Tu cuenta quedó vinculada.");
-    } catch (e) {
-      setToast("No se pudo guardar el vínculo. Revisa tu conexión e intenta de nuevo.");
-    } finally { setTpBusy(false); }
-  };
+  const tpSalir = async () => { await window.tpAuth.salir(); setTpUser(null); setTpPerfil(null); setTpCupones(null); setTpConfirmar(null); };
 
   const tpMiEst = tpPerfil ? ((tpData.estudiantesPorCurso || []).find((c) => c.id === tpPerfil.curso)?.estudiantes || []).find((e) => e.label === tpPerfil.nombre) : null;
   const tpMiSaldo = tpMiEst ? numTp(tpMiEst.price) : null;
   const tpEsProfe = tpEditing || !!(tpUser && tpUser.esAdmin);
 
-  // Escribe un saldo nuevo leyendo SIEMPRE el dato más reciente del servidor.
-  const tpCambiarSaldo = async (cursoId, nombre, delta, exigirSaldo) => {
-    const res = await window.storage.get(TERRAPESOS_STORAGE_KEY, true);
-    const latest = { ...TERRAPESOS_DEFAULT, ...JSON.parse(res.value) };
-    let antes = null, cursoNombre = "";
-    const updated = { ...latest, estudiantesPorCurso: latest.estudiantesPorCurso.map((c) => {
-      if (c.id !== cursoId) return c;
-      cursoNombre = c.nombre;
-      return { ...c, estudiantes: c.estudiantes.map((e) => {
-        if (e.label !== nombre) return e;
-        antes = numTp(e.price);
-        return { ...e, price: addTerrapesos(e.price, delta) };
-      }) };
-    }) };
-    if (antes === null) return { error: "No encontré tu nombre en la lista de Terrapesos." };
-    if (exigirSaldo && antes + delta < 0) return { falta: -(antes + delta), saldo: antes, data: latest };
-    await window.storage.set(TERRAPESOS_STORAGE_KEY, JSON.stringify(updated), true);
-    if (!tpEditing) setTpData(updated);
-    return { saldo: antes + delta, cursoNombre };
-  };
-  const tpAgregarMov = async (mov) => {
-    let lista = [];
-    try { const r = await window.storage.get(MOVIMIENTOS_KEY, true); if (r && r.value) lista = JSON.parse(r.value); } catch (e) {}
-    const nuevo = recortarMovs([mov, ...lista]);
-    await window.storage.set(MOVIMIENTOS_KEY, JSON.stringify(nuevo), true);
-    setTpMovs(nuevo);
+  // Descontar/abonar con transacción: null si no encuentra al estudiante, {falta} si no alcanza, {saldo} si ok.
+  const cambiarSaldoTP = async (curso, nombre, delta) => {
+    let saldo = null, falta = 0;
+    const nuevo = await tpStorageUpdate(TERRAPESOS_STORAGE_KEY, (cur) => {
+      saldo = null; falta = 0;
+      const d = { ...TERRAPESOS_DEFAULT, ...(cur ? JSON.parse(cur) : {}) };
+      const out = { ...d, estudiantesPorCurso: d.estudiantesPorCurso.map((c) => c.id !== curso ? c : { ...c, estudiantes: c.estudiantes.map((e) => { if (e.label !== nombre) return e; saldo = numTp(e.price); return { ...e, price: addTerrapesos(e.price, delta) }; }) }) };
+      if (saldo === null) return undefined;
+      if (saldo + delta < 0) { falta = -(saldo + delta); return undefined; }
+      return JSON.stringify(out);
+    });
+    if (nuevo && !tpEditing) { try { setTpData({ ...TERRAPESOS_DEFAULT, ...JSON.parse(nuevo) }); } catch (e) {} }
+    if (saldo === null) return null;
+    if (falta) return { falta };
+    return { saldo: saldo + delta };
   };
 
-  const tpConfirmarCompra = async () => {
-    const item = tpCompra;
-    if (!item || !tpPerfil || !tpUser) return;
+  // Descuenta, crea el cupón y lo guarda; si falla el cupón, devuelve los terrapesos.
+  const canjearBeneficio = async (user, perfil, item) => {
     const precio = numTp(item.price);
-    if (!precio) { setToast("Este beneficio no tiene precio."); return; }
-    setTpBusy(true);
     try {
-      const r = await tpCambiarSaldo(tpPerfil.curso, tpPerfil.nombre, -precio, true);
-      if (r.error) { setToast(r.error); return; }
-      if (r.falta) { setToast("Te faltan " + fmtTp(r.falta) + " terrapesos."); if (r.data) setTpData(r.data); return; }
+      const c = await cambiarSaldoTP(perfil.curso, perfil.nombre, -precio);
+      if (!c) return { ok: false, msg: "No encontré tu nombre en la lista de Terrapesos." };
+      if (c.falta) return { ok: false, msg: "Te faltan " + fmtTp(c.falta) + " terrapesos." };
+      const cursoNombre = ((tpData.estudiantesPorCurso || []).find((x) => x.id === perfil.curso) || {}).nombre || "";
+      const cup = { id: Date.now().toString(36), code: generarCodigo(), label: item.label, note: item.note || "", precio, fecha: new Date().toISOString(), nombre: perfil.nombre, curso: perfil.curso, cursoNombre };
       try {
-        await tpAgregarMov({
-          t: new Date().toISOString(), curso: r.cursoNombre, cursoId: tpPerfil.curso, nombre: tpPerfil.nombre,
-          delta: -precio, motivo: "Canje: " + item.label, tipo: "canje", beneficio: item.label,
-          id: "cj-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7), estado: "pendiente", uid: tpUser.uid,
+        await tpStorageUpdate(cuponesKey(user.uid), (cur) => {
+          let d = { uid: user.uid, items: [] };
+          try { if (cur) d = JSON.parse(cur); } catch (e) {}
+          return JSON.stringify({ uid: user.uid, items: [cup, ...(d.items || [])] });
         });
       } catch (e) {
-        try { await tpCambiarSaldo(tpPerfil.curso, tpPerfil.nombre, precio, false); } catch (e2) {}
-        setToast("No se pudo completar el canje. No se te cobró nada.");
-        return;
+        try { await cambiarSaldoTP(perfil.curso, perfil.nombre, precio); } catch (e2) {}
+        return { ok: false, msg: "No se pudo generar el cupón. No se te cobró nada." };
       }
-      setTpCompra(null);
-      setToast("¡Canjeaste " + item.label + "! Te quedan " + fmtTp(r.saldo) + ". Tu profe te lo entregará en clases.");
-    } catch (e) {
-      setToast("No se pudo completar el canje. Intenta de nuevo.");
-    } finally { setTpBusy(false); }
+      window.dispatchEvent(new Event("dv-tp-refresh"));
+      return { ok: true, cup, saldo: c.saldo };
+    } catch (e) { return { ok: false, msg: "No se pudo completar el canje. Intenta de nuevo." }; }
   };
 
-  // Profesor: marcar canje como entregado o devolverlo (reintegra los terrapesos).
-  const tpResolverCanje = async (canje, accion) => {
-    setTpBusy(true);
-    try {
-      const r = await window.storage.get(MOVIMIENTOS_KEY, true);
-      const lista = r && r.value ? JSON.parse(r.value) : [];
-      const actual = lista.find((m) => m.id === canje.id);
-      if (!actual || actual.estado !== "pendiente") { setToast("Ese canje ya fue resuelto."); setTpMovs(lista); return; }
-      if (accion === "devuelto") {
-        const cursoId = canje.cursoId || ((tpData.estudiantesPorCurso || []).find((c) => c.nombre === canje.curso) || {}).id;
-        const res = await tpCambiarSaldo(cursoId, canje.nombre, -canje.delta, false);
-        if (res.error) { setToast("No encontré a " + canje.nombre + " en la lista."); return; }
-      }
-      const marcada = lista.map((m) => (m.id === canje.id ? { ...m, estado: accion, resuelto: new Date().toISOString() } : m));
-      const final = accion === "devuelto"
-        ? recortarMovs([{ t: new Date().toISOString(), curso: canje.curso, cursoId: canje.cursoId, nombre: canje.nombre, delta: -canje.delta, motivo: "Devolución: " + (canje.beneficio || canje.motivo) }, ...marcada])
-        : marcada;
-      await window.storage.set(MOVIMIENTOS_KEY, JSON.stringify(final), true);
-      setTpMovs(final);
-      setToast(accion === "entregado" ? "Canje marcado como entregado ✓" : "Canje devuelto: se reintegraron " + fmtTp(-canje.delta) + " terrapesos.");
-    } catch (e) {
-      setToast("No se pudo guardar. Intenta nuevamente.");
-    } finally { setTpBusy(false); }
+  const tpVerCupon = async (cup) => {
+    setTpCuponVer({ cup, url: null });
+    try { const url = await cuponImagen(cup, tpPet); setTpCuponVer({ cup, url }); }
+    catch (e) { setTpCuponVer(null); setToast("No se pudo dibujar el cupón."); }
   };
 
+  const tpCanjear = async (item) => {
+    if (!tpUser || !tpPerfil) return;
+    setTpBusy(true); setTpMsgCanje("");
+    const r = await canjearBeneficio(tpUser, tpPerfil, item);
+    setTpBusy(false); setTpConfirmar(null);
+    if (!r.ok) { setTpMsgCanje(r.msg); setToast(r.msg); tpRecargar(); return; }
+    setTpCupones((l) => [{ ...r.cup, usado: false }, ...(l || [])]);
+    setTpMsgCanje("Canjeaste " + r.cup.label + ". Te quedan " + fmtTp(r.saldo) + " terrapesos.");
+    tpVerCupon(r.cup);
+  };
+
+  useEffect(() => {
+    if (!tpCuponVer) return;
+    const onKey = (e) => { if (e.key === "Escape") setTpCuponVer(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [tpCuponVer]);
+
+  // Estados de canjes antiguos registrados en Movimientos (versión anterior de la tienda).
   const tpEstadoChip = (estado) => (
     <span className={"pf-tp-estado " + (estado || "")}>
       {estado === "pendiente" ? <><Clock size={11} /> Por entregar</> : estado === "entregado" ? <><CheckCircle2 size={11} /> Entregado</> : estado === "devuelto" ? <><Undo2 size={11} /> Devuelto</> : estado}
     </span>
   );
 
+  // Botón / confirmación en la misma fila de cada beneficio individual.
+  const tpAccionFila = (item, i) => {
+    if (!tpPerfil || tpEditing || tpMiSaldo === null) return null;
+    const precio = numTp(item.price);
+    const alcanza = precio > 0 && tpMiSaldo >= precio;
+    if (tpConfirmar === i) {
+      return (
+        <div className="pf-tp-confirm-row" role="group" aria-label={"Confirmar canje de " + item.label}>
+          <span className="q">¿Canjear por {fmtTp(precio)}?</span>
+          <button className="pf-tp-buy" disabled={tpBusy} onClick={() => tpCanjear(item)}>{tpBusy ? "Canjeando…" : "Sí, canjear"}</button>
+          <button className="pf-tp-buy off no" disabled={tpBusy} onClick={() => setTpConfirmar(null)}>No</button>
+        </div>
+      );
+    }
+    return (
+      <button className={"pf-tp-buy" + (alcanza ? "" : " off")} disabled={!alcanza || tpBusy} onClick={() => { setTpMsgCanje(""); setTpConfirmar(i); }}
+        aria-label={alcanza ? "Canjear " + item.label + " por " + fmtTp(precio) + " terrapesos" : "Te faltan " + fmtTp(precio - tpMiSaldo) + " terrapesos para " + item.label}>
+        {alcanza ? "Canjear" : "Faltan " + fmtTp(precio - tpMiSaldo)}
+      </button>
+    );
+  };
+
   const renderMonedero = () => {
     if (!window.tpAuth || !tpSesionLista || tpEditing) return null;
     if (!tpUser) {
       return (
-        <div className="pf-tp-wallet">
+        <section className="pf-tp-wallet" aria-label="Canjear beneficios">
           <div className="pf-tp-wallet-ico"><Wallet size={22} /></div>
           <div style={{ flex: 1, minWidth: 220 }}>
-            <div className="pf-tp-wallet-title">Canjea tus terrapesos aquí</div>
-            <p className="pf-muted pf-tp-wallet-text">Entra con tu cuenta Google para ver tu saldo y canjear beneficios.</p>
-            {tpAuthErr && <p className="pf-tp-wallet-err">{tpAuthErr}</p>}
+            <div className="pf-tp-wallet-title">Canjear beneficios</div>
+            <p className="pf-muted pf-tp-wallet-text">Entra con tu cuenta Google para ver tu saldo y canjear beneficios individuales.</p>
+            {tpAuthErr && <p className="pf-tp-wallet-err" role="alert">{tpAuthErr}</p>}
           </div>
           <button className="pf-btn pf-btn-primary" onClick={tpEntrar}><LogIn size={16} /> Entrar con Google</button>
-        </div>
+        </section>
       );
     }
     if (!tpPerfil) {
-      if (tpUser.esAdmin) return null; // el profesor no se vincula a un estudiante
-      const cursos = (tpData.estudiantesPorCurso || []).filter((c) => !c.oculto);
-      const cursoObj = cursos.find((c) => c.id === tpVinc.curso);
       return (
-        <div className="pf-tp-wallet column">
-          <div style={{ display: "flex", alignItems: "center", gap: 12, width: "100%" }}>
-            <div className="pf-tp-wallet-ico"><Wallet size={22} /></div>
-            <div style={{ flex: 1 }}>
-              <div className="pf-tp-wallet-title">Vincula tu cuenta</div>
-              <p className="pf-muted pf-tp-wallet-text">Elige tu curso y tu nombre. Se hace una sola vez (si ya lo hiciste en Deusivenatura, no hace falta).</p>
-            </div>
-            <button className="pf-link-btn" onClick={tpSalir}>Salir</button>
+        <section className="pf-tp-wallet" aria-label="Canjear beneficios">
+          <div className="pf-tp-wallet-ico"><Wallet size={22} /></div>
+          <div style={{ flex: 1, minWidth: 220 }}>
+            <div className="pf-tp-wallet-title">Primero vincula tu cuenta</div>
+            <p className="pf-muted pf-tp-wallet-text">Primero vincula tu cuenta en Deusivenatura (Mi perfil). Después vuelve aquí para canjear.</p>
           </div>
-          <div className="pf-chip-row">
-            {cursos.map((c) => (
-              <button key={c.id} className={"pf-chip" + (tpVinc.curso === c.id ? " pf-chip-on" : "")} style={{ cursor: "pointer" }} onClick={() => setTpVinc({ curso: c.id, nombre: "" })}>{c.nombre}</button>
-            ))}
-          </div>
-          {cursoObj && (
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", width: "100%" }}>
-              <select className="pf-select" style={{ flex: 1, minWidth: 200 }} value={tpVinc.nombre} onChange={(e) => setTpVinc((v) => ({ ...v, nombre: e.target.value }))}>
-                <option value="">Elige tu nombre…</option>
-                {cursoObj.estudiantes.map((e) => <option key={e.label} value={e.label}>{e.label}</option>)}
-              </select>
-              <button className="pf-btn pf-btn-primary" disabled={!tpVinc.nombre || tpBusy} onClick={tpVincular}><Check size={16} /> Soy yo</button>
-            </div>
-          )}
-        </div>
+          <a className="pf-btn pf-btn-primary" href="https://fernandodelgadillo13.github.io/Deusivenatura/" target="_blank" rel="noopener">Ir a Deusivenatura</a>
+          <button className="pf-link-btn" onClick={tpSalir}>Salir</button>
+        </section>
       );
     }
     const cursoNom = ((tpData.estudiantesPorCurso || []).find((c) => c.id === tpPerfil.curso) || {}).nombre || "";
-    const misCanjes = (tpMovs || []).filter((m) => m.tipo === "canje" && (m.uid === tpUser.uid || (m.nombre === tpPerfil.nombre && m.cursoId === tpPerfil.curso))).slice(0, 5);
     return (
-      <div className="pf-tp-wallet column">
+      <section className="pf-tp-wallet column" aria-label="Canjear beneficios">
         <div style={{ display: "flex", alignItems: "center", gap: 14, width: "100%", flexWrap: "wrap" }}>
           {tpUser.foto ? <img className="pf-tp-wallet-foto" src={tpUser.foto} alt="" referrerPolicy="no-referrer" /> : <div className="pf-tp-wallet-ico"><Wallet size={22} /></div>}
-          <div style={{ flex: 1, minWidth: 160 }}>
-            <div className="pf-tp-wallet-title">{tpPerfil.prueba ? "Cuenta de prueba" : "Hola, " + tpPerfil.nombre.split(" ")[0]}</div>
-            <div className="pf-muted" style={{ fontSize: 13 }}>{tpPerfil.prueba ? "Solo tú la ves. Canjea para probar; luego entrega o devuelve los canjes." : tpPerfil.nombre + (cursoNom ? " · " + cursoNom : "")}</div>
+          <div style={{ flex: 1, minWidth: 180 }}>
+            <div className="pf-tp-wallet-title">Canjear beneficios</div>
+            <div className="pf-muted" style={{ fontSize: 13 }}>{tpPerfil.prueba ? "Cuenta de prueba del profesor · solo tú la ves" : tpPerfil.nombre + (cursoNom ? " · " + cursoNom : "")}</div>
             {tpPerfil.prueba && <button className="pf-link-btn" style={{ marginTop: 4 }} disabled={tpBusy} onClick={() => tpAsegurarPrueba(true)}>Recargar a {fmtTp(TP_SALDO_PRUEBA)}</button>}
           </div>
-          <div className="pf-tp-wallet-saldo">
-            <span className="n">{tpMiSaldo === null ? "—" : fmtTp(tpMiSaldo)}</span>
-            <span className="l">terrapesos disponibles</span>
-          </div>
-          <button className="pf-link-btn" onClick={tpSalir} title="Cerrar sesión"><LogOut size={14} style={{ verticalAlign: -2 }} /> Salir</button>
+          <span className="pf-tp-saldo-chip" aria-live="polite">Tienes <b>{tpMiSaldo === null ? "—" : fmtTp(tpMiSaldo)}</b> terrapesos</span>
+          <button className="pf-link-btn" onClick={tpSalir}><LogOut size={14} style={{ verticalAlign: -2 }} /> Salir</button>
         </div>
-        {tpMiSaldo === null && <p className="pf-tp-wallet-err">No encontré tu nombre en la lista actual. Avísale a tu profesor/a.</p>}
+        {tpMiSaldo === null && <p className="pf-tp-wallet-err" role="alert">No encontré tu nombre en la lista actual. Avísale a tu profesor/a.</p>}
+        <p className="pf-muted pf-tp-wallet-text" aria-live="polite">{tpMsgCanje || "Elige un beneficio individual de la lista y presiona Canjear. Recibirás un cupón para mostrarle a tu profesor/a."}</p>
         <div className="pf-tp-wallet-canjes">
-          <div className="pf-eyebrow" style={{ marginBottom: 6 }}>Mis canjes</div>
-          {misCanjes.length === 0
-            ? <p className="pf-muted" style={{ fontSize: 13, margin: 0 }}>Aún no canjeas nada. Elige un beneficio individual y presiona <b>Canjear</b>.</p>
-            : misCanjes.map((m) => (
-              <div className="pf-tp-wallet-canje" key={m.id}>
-                <span style={{ flex: 1, minWidth: 0 }}>{m.beneficio || m.motivo}<span className="pf-muted" style={{ fontSize: 11.5 }}> · {new Date(m.t).toLocaleDateString("es-CL")}</span></span>
-                <span className="pf-tp-price" style={{ minWidth: 0 }}>{fmtTp(-m.delta)}</span>
-                {tpEstadoChip(m.estado)}
-              </div>
-            ))}
+          <div className="pf-eyebrow" style={{ marginBottom: 6 }}>Mis cupones</div>
+          {tpCupones === null && <p className="pf-muted" style={{ fontSize: 13, margin: 0 }}>Cargando…</p>}
+          {tpCupones && tpCupones.length === 0 && <p className="pf-muted" style={{ fontSize: 13, margin: 0 }}>Todavía no tienes cupones.</p>}
+          {(tpCupones || []).map((c) => (
+            <div className="pf-tp-wallet-canje" key={c.id + c.code}>
+              <span style={{ flex: 1, minWidth: 150 }}>{c.label}<span className="pf-muted" style={{ fontSize: 11.5 }}> · {fechaLarga(c.fecha)} · <span className="mono">{c.code}</span></span></span>
+              <span className="pf-tp-price" style={{ minWidth: 0 }}>{fmtTp(c.precio)}</span>
+              <span className={"pf-tp-estado " + (c.usado ? "devuelto" : "pendiente")}>{c.usado ? <><CheckCircle2 size={11} /> Usado</> : <><Clock size={11} /> Vigente</>}</span>
+              <button className="pf-link-btn" onClick={() => tpVerCupon(c)}>Ver cupón</button>
+            </div>
+          ))}
         </div>
-      </div>
-    );
-  };
-
-  const renderCanjesProfe = () => {
-    if (!tpEsProfe) return null;
-    const pend = (tpMovs || []).filter((m) => m.tipo === "canje" && m.estado === "pendiente");
-    return (
-      <div className="pf-tp-wallet column profe">
-        <div style={{ display: "flex", alignItems: "center", gap: 12, width: "100%" }}>
-          <div className="pf-tp-wallet-ico"><ShoppingBag size={22} /></div>
-          <div style={{ flex: 1 }}>
-            <div className="pf-tp-wallet-title">Canjes por entregar {pend.length > 0 && <span className="pf-tp-badge">{pend.length}</span>}</div>
-            <p className="pf-muted pf-tp-wallet-text">Los terrapesos ya se descontaron. Marca cada canje cuando entregues el beneficio, o devuélvelo si no corresponde.</p>
-          </div>
-        </div>
-        {tpMovs === null && <p className="pf-muted" style={{ fontSize: 13, margin: 0 }}>Cargando…</p>}
-        {tpMovs && pend.length === 0 && <p className="pf-muted" style={{ fontSize: 13, margin: 0 }}>No hay canjes pendientes.</p>}
-        {pend.map((m) => (
-          <div className="pf-tp-wallet-canje" key={m.id}>
-            <span style={{ flex: 1, minWidth: 180 }}><b>{m.nombre}</b> <span className="pf-muted" style={{ fontSize: 12 }}>· {m.curso}</span><br /><span style={{ fontSize: 13 }}>{m.beneficio || m.motivo}</span> <span className="pf-muted" style={{ fontSize: 11.5 }}>· {new Date(m.t).toLocaleString("es-CL", { dateStyle: "short", timeStyle: "short" })}</span></span>
-            <span className="pf-tp-price" style={{ minWidth: 0 }}>{fmtTp(-m.delta)}</span>
-            <span style={{ display: "flex", gap: 6 }}>
-              <button className="pf-btn pf-btn-primary pf-btn-sm" disabled={tpBusy} onClick={() => tpResolverCanje(m, "entregado")}><Check size={14} /> Entregado</button>
-              <button className="pf-btn pf-btn-secondary pf-btn-sm" disabled={tpBusy} onClick={() => tpResolverCanje(m, "devuelto")}><Undo2 size={14} /> Devolver</button>
-            </span>
-          </div>
-        ))}
-      </div>
+      </section>
     );
   };
 
@@ -1661,7 +1703,6 @@ function TerrapesosApp() {
 
         {tpTab === "cambio" && (
           <>
-            {renderCanjesProfe()}
             {renderMonedero()}
             <div className="pf-tp-columns">
               <div>
@@ -1669,11 +1710,7 @@ function TerrapesosApp() {
                 <div className="pf-tp-col-desc">Se pagan con tus propios terrapesos, cuando quieras canjearlos.</div>
                 {d.individual.map((item, i) => (
                   <TpRow tpEditing={tpEditing} key={i} item={item} tier={item.tier} onChangeField={(f, v) => tpUpdateListItem("individual", i, f, v)} onRemove={() => tpRemoveListItem("individual", i)}
-                    accion={tpPerfil && !tpEditing && tpMiSaldo !== null ? (() => {
-                      const precio = numTp(item.price);
-                      const alcanza = tpMiSaldo >= precio && precio > 0;
-                      return <button className={"pf-tp-buy" + (alcanza ? "" : " off")} disabled={!alcanza} onClick={() => setTpCompra(item)} title={alcanza ? "Canjear este beneficio" : "Aún no te alcanza"}>{alcanza ? "Canjear" : "Faltan " + fmtTp(precio - tpMiSaldo)}</button>;
-                    })() : null} />
+                    accion={tpAccionFila(item, i)} />
                 ))}
                 {tpEditing && <button className="pf-tp-add-row" onClick={() => tpAddListItem("individual", true)}><Plus size={13} style={{ verticalAlign: -2 }} /> Agregar beneficio</button>}
               </div>
@@ -1905,23 +1942,19 @@ function TerrapesosApp() {
 
         {!tpLoaded && <p className="pf-muted" style={{ marginTop: 18, fontSize: 12.5 }}>Cargando valores guardados…</p>}
 
-        {tpCompra && (
-          <div className="pf-search-overlay" onClick={() => !tpBusy && setTpCompra(null)}>
-            <div className="pf-search-panel" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
-              <div style={{ padding: "22px 22px 6px" }}>
-                <div className="pf-eyebrow" style={{ marginBottom: 8 }}>Confirmar canje</div>
-                <h3 className="pf-serif" style={{ fontSize: 26, margin: "0 0 4px" }}>{tpCompra.label}</h3>
-                {tpCompra.note && <p className="pf-muted" style={{ fontSize: 13, margin: "0 0 14px" }}>{tpCompra.note}</p>}
-                <div className="pf-tp-confirm-grid">
-                  <span>Precio</span><b>{showTp(tpCompra.price)}</b>
-                  <span>Tu saldo</span><b>{fmtTp(tpMiSaldo || 0)}</b>
-                  <span>Te quedarán</span><b className="gold">{fmtTp((tpMiSaldo || 0) - numTp(tpCompra.price))}</b>
-                </div>
-                <p className="pf-muted" style={{ fontSize: 12.5, margin: "14px 0 0" }}>Los terrapesos se descuentan ahora. Tu profesor/a verá el canje y te entregará el beneficio en clases.</p>
+        {tpCuponVer && (
+          <div className="pf-search-overlay" onClick={() => setTpCuponVer(null)}>
+            <div className="pf-search-panel pf-tp-cupon-panel" role="dialog" aria-modal="true" aria-label={"Cupón " + tpCuponVer.cup.code} onClick={(e) => e.stopPropagation()}>
+              <div style={{ padding: "18px 18px 6px" }}>
+                <div className="pf-eyebrow" style={{ marginBottom: 8 }}>Tu cupón · {tpCuponVer.cup.code}</div>
+                {tpCuponVer.url
+                  ? <img className="pf-tp-cupon-img" src={tpCuponVer.url} alt={"Cupón de canje " + tpCuponVer.cup.code + ": " + tpCuponVer.cup.label + ", para " + tpCuponVer.cup.nombre + ", " + fmtTp(tpCuponVer.cup.precio) + " terrapesos"} />
+                  : <p className="pf-muted" style={{ fontSize: 13 }}>Dibujando tu cupón…</p>}
+                <p className="pf-muted" style={{ fontSize: 13, margin: "12px 0 0" }}>Muéstraselo a tu profesor. En el celular, también puedes dejarlo apretado sobre la imagen para guardarla.</p>
               </div>
-              <div style={{ display: "flex", gap: 10, padding: "16px 22px 22px" }}>
-                <button className="pf-btn pf-btn-primary" disabled={tpBusy} onClick={tpConfirmarCompra}><ShoppingBag size={15} /> {tpBusy ? "Canjeando…" : "Confirmar canje"}</button>
-                <button className="pf-btn pf-btn-secondary" disabled={tpBusy} onClick={() => setTpCompra(null)}>Cancelar</button>
+              <div style={{ display: "flex", gap: 10, padding: "14px 18px 18px", flexWrap: "wrap" }}>
+                {tpCuponVer.url && <a className="pf-btn pf-btn-primary" href={tpCuponVer.url} download={"cupon-" + tpCuponVer.cup.code + ".png"}>Guardar imagen</a>}
+                <button className="pf-btn pf-btn-secondary" autoFocus onClick={() => setTpCuponVer(null)}>Cerrar</button>
               </div>
             </div>
           </div>
