@@ -142,7 +142,7 @@ window.tpTx = (key, fn) => {
 };
 import React, { useState, useMemo, useEffect } from "react";
 import { createRoot } from "react-dom/client";
-import { Coins, Pencil, Save, Plus, Trash2, Check, X, ArrowRight, Info, Wallet, ShoppingBag, LogIn, LogOut, Clock, Undo2, CheckCircle2 } from "lucide-react";
+import { Coins, Pencil, Save, Plus, Trash2, Check, X, ArrowRight, Info, Wallet, ShoppingBag, LogIn, LogOut, Clock, Undo2, CheckCircle2, Gavel, Timer, Trophy } from "lucide-react";
 
 const MOVIMIENTOS_KEY = "terrapesos-movimientos";
 // Cuenta Google ↔ estudiante: mismas claves que usa Deusivenatura (el vínculo se comparte).
@@ -213,6 +213,17 @@ async function cuponImagen(c, pet) {
   x.globalCompositeOperation = "destination-out"; x.beginPath(); x.arc(px, 0, 20, 0, Math.PI * 2); x.fill(); x.beginPath(); x.arc(px, H, 20, 0, Math.PI * 2); x.fill(); x.globalCompositeOperation = "source-over";
   try { return cv.toDataURL("image/png"); }
   catch (e) { return cuponImagen(c, null); } // si la mascota "ensucia" el canvas, se dibuja sin ella
+}
+// Saldo dentro de los datos (puro, para usar dentro de transacciones).
+function ajustarSaldoEn(d, cursoId, nombre, delta) {
+  let antes = null;
+  const est = (d.estudiantesPorCurso || []).map((c) => c.id !== cursoId ? c : { ...c, estudiantes: c.estudiantes.map((e) => { if (e.label !== nombre) return e; antes = numTp(e.price); return { ...e, price: fmtTp(antes + delta) }; }) });
+  return antes === null ? null : { d: { ...d, estudiantesPorCurso: est }, antes };
+}
+function cerrarVencidas(d, now) {
+  let cambio = false;
+  const subs = (d.subastas || []).map((s) => { if (s.estado === "abierta" && Date.parse(s.cierre) <= now) { cambio = true; return { ...s, estado: "cerrada", cerradaEn: s.cierre }; } return s; });
+  return cambio ? { ...d, subastas: subs } : null;
 }
 const numTp = (p) => parseInt(String(p).replace(/[.\s]/g, ""), 10) || 0;
 // Historial: máximo 150, pero nunca se borra un canje que aún no se entrega.
@@ -1078,6 +1089,33 @@ footer.pf-footer { letter-spacing: .5px; }
 .pf-tp-cupon-panel { max-width: 720px; }
 .pf-tp-cupon-img { display: block; width: 100%; height: auto; border-radius: 14px; }
 a.pf-btn { text-decoration: none; }
+/* ---------- Subastas ---------- */
+.pf-tp-tab-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 8px var(--gold); margin-left: 6px; vertical-align: 2px; }
+.pf-tp-sub-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 4px 0 18px; font-size: 14px; }
+.pf-tp-subs { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: 18px; }
+.pf-tp-sub { display: flex; flex-direction: column; gap: 10px; padding: 18px 20px; border-radius: 18px; background: linear-gradient(160deg, rgba(23,32,56,.85), rgba(12,17,32,.9)); border: 1px solid rgba(139,92,246,.3); box-shadow: 0 14px 34px rgba(0,0,0,.35); min-width: 0; }
+.pf-tp-sub.lider { border-color: rgba(233,196,106,.65); box-shadow: 0 0 30px rgba(233,196,106,.18), 0 14px 34px rgba(0,0,0,.35); }
+.pf-tp-sub-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.pf-tp-sub-time { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 700; color: var(--cyan); }
+.pf-tp-sub-title { font-family: 'Cormorant Garamond', serif; font-size: 26px; font-weight: 700; line-height: 1.1; margin: 2px 0 0; color: var(--text); }
+.pf-tp-sub-oferta { display: grid; grid-template-columns: 1fr; padding: 12px 14px; border-radius: 14px; background: rgba(8,11,20,.5); border: 1px solid rgba(255,255,255,.07); }
+.pf-tp-sub-oferta .l { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-muted); font-weight: 700; }
+.pf-tp-sub-oferta .n { font-family: 'Cinzel', 'Cormorant Garamond', serif; font-weight: 700; font-size: 34px; line-height: 1.1; background: linear-gradient(180deg, #FFFFFF 10%, #E9C46A 60%, #B98B33 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.pf-tp-sub-oferta .w { font-size: 13.5px; color: var(--text); }
+.pf-tp-sub-oferta .gold, .gold { color: var(--gold); }
+.pf-tp-sub-bid { display: flex; gap: 8px; }
+.pf-tp-sub-bid .pf-input { flex: 1; min-width: 0; font-size: 16px; font-weight: 700; }
+.pf-tp-sub-bid .pf-tp-buy { margin-left: 0; padding: 10px 16px; font-size: 13.5px; }
+.pf-tp-sub-conf { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: 12px; background: rgba(233,196,106,.08); border: 1px solid rgba(233,196,106,.4); font-size: 13.5px; }
+.pf-tp-sub-conf .pf-tp-buy { margin-left: 0; }
+.pf-tp-sub-msg { font-size: 13px; margin: 0; color: var(--text); }
+.pf-tp-sub-hist summary { cursor: pointer; font-size: 12.5px; color: var(--cyan); }
+.pf-tp-sub-hist div { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,.05); }
+.pf-tp-sub-hist b { font-family: 'Cormorant Garamond', serif; color: var(--gold); font-size: 15px; }
+.pf-tp-sub-admin { display: flex; gap: 16px; flex-wrap: wrap; border-top: 1px solid rgba(255,255,255,.07); padding-top: 8px; }
+.pf-tp-sub-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: 12px; width: 100%; }
+.pf-tp-sub-form label { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; color: var(--text-muted); font-weight: 600; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
 .mono { font-family: ui-monospace, Menlo, Consolas, monospace; letter-spacing: .5px; }
 .pf-tp-wallet { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 0 0 24px; padding: 18px 20px; border-radius: 18px;
   background: linear-gradient(160deg, rgba(139,92,246,.14), rgba(34,211,238,.07)); border: 1px solid rgba(139,92,246,.35); backdrop-filter: blur(6px); box-shadow: 0 0 30px rgba(139,92,246,.12); }
@@ -1238,7 +1276,7 @@ function TerrapesosApp() {
 
       // Los cursos que solo existen en el servidor (p. ej. creados mientras se editaba) se conservan.
       const soloServidor = (latest.estudiantesPorCurso || []).filter((c) => !tpData.estudiantesPorCurso.some((x) => x.id === c.id) && !(tpSnapshot?.estudiantesPorCurso || []).some((x) => x.id === c.id));
-      finalData = { ...tpData, estudiantesPorCurso: [...mergedEstudiantesPorCurso.filter((c) => tpData.estudiantesPorCurso.some((x) => x.id === c.id)), ...tpData.estudiantesPorCurso.filter((c) => !(latest.estudiantesPorCurso || []).some((x) => x.id === c.id)), ...soloServidor] };
+      finalData = { ...tpData, subastas: latest.subastas || [], estudiantesPorCurso: [...mergedEstudiantesPorCurso.filter((c) => tpData.estudiantesPorCurso.some((x) => x.id === c.id)), ...tpData.estudiantesPorCurso.filter((c) => !(latest.estudiantesPorCurso || []).some((x) => x.id === c.id)), ...soloServidor] };
       return JSON.stringify(finalData);
       });
       setTpData(finalData);
@@ -1626,7 +1664,7 @@ function TerrapesosApp() {
             <div className="pf-muted" style={{ fontSize: 13 }}>{tpPerfil.prueba ? "Cuenta de prueba del profesor · solo tú la ves" : tpPerfil.nombre + (cursoNom ? " · " + cursoNom : "")}</div>
             {tpPerfil.prueba && <button className="pf-link-btn" style={{ marginTop: 4 }} disabled={tpBusy} onClick={() => tpAsegurarPrueba(true)}>Recargar a {fmtTp(TP_SALDO_PRUEBA)}</button>}
           </div>
-          <span className="pf-tp-saldo-chip" aria-live="polite">Tienes <b>{tpMiSaldo === null ? "—" : fmtTp(tpMiSaldo)}</b> terrapesos</span>
+          <span className="pf-tp-saldo-chip" aria-live="polite">Tienes <b>{tpMiSaldo === null ? "—" : fmtTp(tpMiSaldo)}</b> terrapesos{tpReservado > 0 ? <span className="pf-muted" style={{ fontSize: 12 }}> · {fmtTp(tpReservado)} reservado en subastas</span> : null}</span>
           <button className="pf-link-btn" onClick={tpSalir}><LogOut size={14} style={{ verticalAlign: -2 }} /> Salir</button>
         </div>
         {tpMiSaldo === null && <p className="pf-tp-wallet-err" role="alert">No encontré tu nombre en la lista actual. Avísale a tu profesor/a.</p>}
@@ -1645,6 +1683,340 @@ function TerrapesosApp() {
           ))}
         </div>
       </section>
+    );
+  };
+
+  /* ============================================================
+     SUBASTAS (campo "subastas" dentro de terrapesos-data-v1)
+     - Ofertar reserva los terrapesos del estudiante y devuelve los
+       del que iba ganando, en UNA transacción junto con los saldos.
+     - Se cierran solas a la hora indicada (cualquier visita lo hace);
+       el profesor también puede cerrar antes o cancelar (devuelve).
+     - El ganador recibe un cupón TERRAPESOS en cupones-<uid>
+       (lo crea su propia sesión la primera vez que abre la página).
+     ============================================================ */
+  const [tpAhora, setTpAhora] = useState(Date.now());
+  const [tpSubForm, setTpSubForm] = useState(null);
+  const [tpOfertaIn, setTpOfertaIn] = useState({});
+  const [tpOfertaConf, setTpOfertaConf] = useState(null); // { id, monto, cobrar }
+  const [tpSubMsg, setTpSubMsg] = useState({});
+  const [tpSubAccion, setTpSubAccion] = useState(null); // { id, accion } para confirmar
+  const tpCuponSubRef = React.useRef(new Set());
+  const subastas = tpData.subastas || [];
+  const esMia = (o) => !!(o && tpPerfil && o.cursoId === tpPerfil.curso && o.nombre === tpPerfil.nombre);
+  const tpReservado = subastas.filter((s) => s.estado === "abierta" && esMia(s.oferta)).reduce((a, s) => a + s.oferta.monto, 0);
+
+  // Transacción sobre los datos: fn(d) → { data?, res }. Puede repetirse: debe ser pura.
+  const tpTxData = async (fn) => {
+    let res = null;
+    const nuevo = await tpStorageUpdate(TERRAPESOS_STORAGE_KEY, (cur) => {
+      const d = { ...TERRAPESOS_DEFAULT, ...(cur ? JSON.parse(cur) : {}) };
+      const r = fn(d) || {};
+      res = r.res;
+      return r.data ? JSON.stringify(r.data) : undefined;
+    });
+    if (nuevo && !tpEditing) { try { setTpData({ ...TERRAPESOS_DEFAULT, ...JSON.parse(nuevo) }); } catch (e) {} }
+    return res;
+  };
+
+  useEffect(() => {
+    if (tpTab !== "subastas") return;
+    const t = setInterval(() => setTpAhora(Date.now()), 15000);
+    return () => clearInterval(t);
+  }, [tpTab]);
+  useEffect(() => {
+    if (tpTab !== "subastas" || tpEditing) return;
+    tpRecargar();
+    const t = setInterval(() => { tpRecargar(); setTpAhora(Date.now()); }, 10000);
+    return () => clearInterval(t);
+  }, [tpTab, tpEditing]);
+
+  // Cierre automático de las vencidas.
+  useEffect(() => {
+    if (tpEditing) return;
+    const now = Date.now();
+    if (!subastas.some((s) => s.estado === "abierta" && Date.parse(s.cierre) <= now)) return;
+    tpTxData((d) => {
+      const r = cerrarVencidas(d, Date.now());
+      return r ? { data: r } : {};
+    }).catch(() => {});
+  }, [tpAhora, tpData.subastas, tpEditing]);
+
+  // Cupón para el ganador (solo lo puede escribir su propia sesión).
+  useEffect(() => {
+    if (!tpUser || !tpPerfil) return;
+    subastas.forEach(async (s) => {
+      if (s.estado !== "cerrada" || !s.oferta || s.cupon || !esMia(s.oferta)) return;
+      if (tpCuponSubRef.current.has(s.id)) return;
+      tpCuponSubRef.current.add(s.id);
+      try {
+        let code = null;
+        await tpStorageUpdate(cuponesKey(tpUser.uid), (cur) => {
+          let d = { uid: tpUser.uid, items: [] };
+          try { if (cur) d = JSON.parse(cur); } catch (e) {}
+          const ya = (d.items || []).find((i) => i.id === "sub-" + s.id);
+          if (ya) { code = ya.code; return undefined; }
+          const cup = { id: "sub-" + s.id, code: generarCodigo(), label: "Subasta: " + s.titulo, note: s.nota || "Ganada en subasta", precio: s.oferta.monto, fecha: new Date().toISOString(), nombre: tpPerfil.nombre, curso: tpPerfil.curso, cursoNombre: s.oferta.cursoNombre || "" };
+          code = cup.code;
+          return JSON.stringify({ uid: tpUser.uid, items: [cup, ...(d.items || [])] });
+        });
+        await tpTxData((d) => {
+          const x = (d.subastas || []).find((y) => y.id === s.id);
+          if (!x || x.cupon) return {};
+          return { data: { ...d, subastas: d.subastas.map((y) => (y.id === s.id ? { ...y, cupon: code } : y)) } };
+        });
+        tpCargarCupones(tpUser.uid);
+      } catch (e) { tpCuponSubRef.current.delete(s.id); }
+    });
+  }, [tpData.subastas, tpUser && tpUser.uid, tpPerfil && tpPerfil.nombre]);
+
+  // Al cambiar de cuenta, se limpian mensajes y ofertas a medio escribir.
+  useEffect(() => { setTpSubMsg({}); setTpOfertaIn({}); setTpOfertaConf(null); setTpConfirmar(null); setTpMsgCanje(""); }, [tpUser && tpUser.uid]);
+
+  const tpSiguienteMinimo = (s) => (s.oferta ? s.oferta.monto + (s.incremento || 1000) : s.minimo);
+
+  const tpPrepararOferta = (s) => {
+    const monto = numTp(tpOfertaIn[s.id] !== undefined ? tpOfertaIn[s.id] : fmtTp(tpSiguienteMinimo(s)));
+    const min = tpSiguienteMinimo(s);
+    if (monto < min) { setTpSubMsg((m) => ({ ...m, [s.id]: "La oferta mínima es " + fmtTp(min) + "." })); return; }
+    const cobrar = esMia(s.oferta) ? monto - s.oferta.monto : monto;
+    if (tpMiSaldo !== null && cobrar > tpMiSaldo) { setTpSubMsg((m) => ({ ...m, [s.id]: "Te faltan " + fmtTp(cobrar - tpMiSaldo) + " terrapesos." })); return; }
+    setTpSubMsg((m) => ({ ...m, [s.id]: "" }));
+    setTpOfertaConf({ id: s.id, monto, cobrar });
+  };
+
+  const tpOfertar = async (subId, monto) => {
+    if (!tpUser || !tpPerfil) return;
+    setTpBusy(true);
+    const decir = (t) => setTpSubMsg((m) => ({ ...m, [subId]: t }));
+    try {
+      const res = await tpTxData((d) => {
+        const now = Date.now();
+        const subs = d.subastas || [];
+        const s = subs.find((x) => x.id === subId);
+        if (!s || s.estado !== "abierta" || Date.parse(s.cierre) <= now) return { res: { msg: "Esta subasta ya está cerrada." } };
+        const top = s.oferta;
+        const min = top ? top.monto + (s.incremento || 1000) : s.minimo;
+        if (monto < min) return { res: { msg: "Alguien ofertó antes: la oferta mínima ahora es " + fmtTp(min) + "." } };
+        const mismo = !!(top && top.cursoId === tpPerfil.curso && top.nombre === tpPerfil.nombre);
+        const cobrar = mismo ? monto - top.monto : monto;
+        const a = ajustarSaldoEn(d, tpPerfil.curso, tpPerfil.nombre, -cobrar);
+        if (!a) return { res: { msg: "No encontré tu nombre en la lista de Terrapesos." } };
+        if (a.antes < cobrar) return { res: { msg: "Te faltan " + fmtTp(cobrar - a.antes) + " terrapesos." } };
+        let d2 = a.d;
+        if (top && !mismo) { const r = ajustarSaldoEn(d2, top.cursoId, top.nombre, top.monto); if (r) d2 = r.d; }
+        const cursoNombre = ((d.estudiantesPorCurso || []).find((c) => c.id === tpPerfil.curso) || {}).nombre || "";
+        const t = new Date(now).toISOString();
+        const oferta = { monto, cursoId: tpPerfil.curso, cursoNombre, nombre: tpPerfil.nombre, uid: tpUser.uid, t };
+        const s2 = { ...s, oferta, historial: [{ monto, nombre: tpPerfil.nombre, cursoNombre, t }, ...(s.historial || [])].slice(0, 20) };
+        return { data: { ...d2, subastas: subs.map((x) => (x.id === subId ? s2 : x)) }, res: { ok: true } };
+      });
+      if (res && res.ok) {
+        decir("¡Vas ganando con " + fmtTp(monto) + "! Si alguien te supera, te devolvemos tus terrapesos.");
+        setTpOfertaIn((o) => { const n = { ...o }; delete n[subId]; return n; });
+      } else decir((res && res.msg) || "No se pudo ofertar.");
+    } catch (e) {
+      decir("No se pudo ofertar. Revisa tu conexión e intenta de nuevo.");
+    } finally { setTpBusy(false); setTpOfertaConf(null); }
+  };
+
+  const tpCrearSubasta = async () => {
+    const f = tpSubForm;
+    const titulo = (f.titulo || "").trim();
+    const minimo = numTp(f.minimo), incremento = numTp(f.incremento) || 1000;
+    const cierre = f.cierre ? new Date(f.cierre) : null;
+    if (!titulo) { setTpSubForm({ ...f, error: "Escribe qué se subasta." }); return; }
+    if (!minimo) { setTpSubForm({ ...f, error: "La oferta mínima debe ser mayor que 0." }); return; }
+    if (!cierre || isNaN(cierre.getTime()) || cierre.getTime() <= Date.now()) { setTpSubForm({ ...f, error: "Elige una fecha y hora de cierre en el futuro." }); return; }
+    setTpBusy(true);
+    try {
+      const nueva = { id: "sb-" + Date.now().toString(36), titulo, nota: (f.nota || "").trim(), minimo, incremento, cierre: cierre.toISOString(), estado: "abierta", oferta: null, historial: [], creada: new Date().toISOString() };
+      await tpTxData((d) => ({ data: { ...d, subastas: [nueva, ...(d.subastas || [])] } }));
+      setTpSubForm(null);
+      setToast("Subasta creada: " + titulo);
+    } catch (e) { setToast("No se pudo crear la subasta. Intenta nuevamente."); }
+    finally { setTpBusy(false); }
+  };
+
+  const tpAccionSubasta = async (subId, accion) => {
+    setTpBusy(true); setTpSubAccion(null);
+    try {
+      const res = await tpTxData((d) => {
+        const subs = d.subastas || [];
+        const s = subs.find((x) => x.id === subId);
+        if (!s) return { res: "No se encontró la subasta." };
+        if (accion === "quitar") return { data: { ...d, subastas: subs.filter((x) => x.id !== subId) }, res: "Subasta quitada de la lista." };
+        if (s.estado !== "abierta") return { res: "Esa subasta ya estaba cerrada." };
+        const ahora = new Date().toISOString();
+        if (accion === "cerrar") return { data: { ...d, subastas: subs.map((x) => (x.id === subId ? { ...x, estado: "cerrada", cierre: ahora, cerradaEn: ahora } : x)) }, res: s.oferta ? "Subasta cerrada. Ganó " + s.oferta.nombre + " con " + fmtTp(s.oferta.monto) + "." : "Subasta cerrada sin ofertas." };
+        let d2 = d;
+        if (s.oferta) { const r = ajustarSaldoEn(d, s.oferta.cursoId, s.oferta.nombre, s.oferta.monto); if (r) d2 = r.d; }
+        return { data: { ...d2, subastas: subs.map((x) => (x.id === subId ? { ...x, estado: "cancelada", cerradaEn: ahora } : x)) }, res: s.oferta ? "Subasta cancelada: se devolvieron " + fmtTp(s.oferta.monto) + " a " + s.oferta.nombre + "." : "Subasta cancelada." };
+      });
+      if (res) setToast(res);
+    } catch (e) { setToast("No se pudo guardar. Intenta nuevamente."); }
+    finally { setTpBusy(false); }
+  };
+
+  const tpFalta = (iso) => {
+    const ms = Date.parse(iso) - tpAhora;
+    if (ms <= 0) return "Cerrando…";
+    const min = Math.floor(ms / 60000), h = Math.floor(min / 60), dd = Math.floor(h / 24);
+    if (dd >= 1) return "Cierra en " + dd + " d " + (h % 24) + " h";
+    if (h >= 1) return "Cierra en " + h + " h " + (min % 60) + " min";
+    if (min >= 1) return "Cierra en " + min + " min";
+    return "Cierra en menos de 1 min";
+  };
+  const fechaHora = (iso) => { try { return new Date(iso).toLocaleString("es-CL", { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); } catch (e) { return ""; } };
+
+  const renderSubastas = () => {
+    const abiertas = subastas.filter((s) => s.estado === "abierta").sort((a, b) => Date.parse(a.cierre) - Date.parse(b.cierre));
+    const cerradas = subastas.filter((s) => s.estado !== "abierta").sort((a, b) => Date.parse(b.cerradaEn || b.cierre) - Date.parse(a.cerradaEn || a.cierre)).slice(0, 12);
+    const enDosDias = () => { const d = new Date(Date.now() + 2 * 86400000); d.setHours(18, 0, 0, 0); const p = (n) => String(n).padStart(2, "0"); return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + "T18:00"; };
+    return (
+      <>
+        <div className="pf-tp-col-title">Subastas</div>
+        <div className="pf-tp-col-desc">Ofrece tus terrapesos por premios especiales. Tu oferta queda reservada; si alguien te supera, te la devolvemos al instante. Compiten todos los cursos.</div>
+
+        {window.tpAuth && tpSesionLista && !tpEditing && (
+          !tpUser ? (
+            <div className="pf-tp-sub-bar"><span>Entra con tu cuenta Google para ofertar.</span><button className="pf-btn pf-btn-primary pf-btn-sm" onClick={tpEntrar}><LogIn size={14} /> Entrar con Google</button></div>
+          ) : !tpPerfil ? (
+            <div className="pf-tp-sub-bar"><span>Primero vincula tu cuenta en Deusivenatura (Mi perfil).</span><a className="pf-btn pf-btn-primary pf-btn-sm" href="https://fernandodelgadillo13.github.io/Deusivenatura/" target="_blank" rel="noopener">Ir a Deusivenatura</a></div>
+          ) : (
+            <div className="pf-tp-sub-bar">
+              <span className="pf-tp-saldo-chip" aria-live="polite">Tienes <b>{tpMiSaldo === null ? "—" : fmtTp(tpMiSaldo)}</b> terrapesos</span>
+              {tpReservado > 0 && <span className="pf-muted" style={{ fontSize: 13 }}>Reservado en subastas: <b style={{ color: "var(--gold)" }}>{fmtTp(tpReservado)}</b></span>}
+            </div>
+          )
+        )}
+
+        {tpEsProfe && (
+          tpSubForm ? (
+            <div className="pf-tp-wallet column profe" style={{ marginTop: 6 }}>
+              <div className="pf-tp-wallet-title"><Gavel size={18} /> Nueva subasta</div>
+              <div className="pf-tp-sub-form">
+                <label>Qué se subasta<input className="pf-input" value={tpSubForm.titulo} onChange={(e) => setTpSubForm({ ...tpSubForm, titulo: e.target.value, error: "" })} /></label>
+                <label>Detalle (opcional)<input className="pf-input" value={tpSubForm.nota} placeholder="Ej.: válido en la próxima prueba" onChange={(e) => setTpSubForm({ ...tpSubForm, nota: e.target.value })} /></label>
+                <label>Oferta mínima<input className="pf-input" inputMode="numeric" value={tpSubForm.minimo} onChange={(e) => setTpSubForm({ ...tpSubForm, minimo: e.target.value, error: "" })} /></label>
+                <label>Aumento mínimo<input className="pf-input" inputMode="numeric" value={tpSubForm.incremento} onChange={(e) => setTpSubForm({ ...tpSubForm, incremento: e.target.value })} /></label>
+                <label>Cierra el<input className="pf-input" type="datetime-local" value={tpSubForm.cierre} onChange={(e) => setTpSubForm({ ...tpSubForm, cierre: e.target.value, error: "" })} /></label>
+              </div>
+              {tpSubForm.error && <p className="pf-tp-wallet-err" role="alert">{tpSubForm.error}</p>}
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <button className="pf-btn pf-btn-primary" disabled={tpBusy} onClick={tpCrearSubasta}><Gavel size={15} /> Publicar subasta</button>
+                <button className="pf-btn pf-btn-secondary" onClick={() => setTpSubForm(null)}>Cancelar</button>
+              </div>
+            </div>
+          ) : (
+            <button className="pf-btn pf-btn-secondary" style={{ margin: "6px 0 18px" }} onClick={() => setTpSubForm({ titulo: "+5 décimas en una prueba", nota: "", minimo: "5.000", incremento: "1.000", cierre: enDosDias(), error: "" })}><Plus size={15} /> Nueva subasta</button>
+          )
+        )}
+
+        {abiertas.length === 0 && <p className="pf-muted" style={{ fontSize: 14, margin: "8px 0 24px" }}>No hay subastas abiertas por ahora.</p>}
+        <div className="pf-tp-subs">
+          {abiertas.map((s) => {
+            const lider = esMia(s.oferta);
+            const min = tpSiguienteMinimo(s);
+            const conf = tpOfertaConf && tpOfertaConf.id === s.id ? tpOfertaConf : null;
+            const pedirConf = tpSubAccion && tpSubAccion.id === s.id ? tpSubAccion.accion : null;
+            return (
+              <article className={"pf-tp-sub" + (lider ? " lider" : "")} key={s.id} aria-label={"Subasta: " + s.titulo}>
+                <div className="pf-tp-sub-top">
+                  <span className="pf-tp-estado pendiente"><Gavel size={11} /> Abierta</span>
+                  <span className="pf-tp-sub-time" title={fechaHora(s.cierre)}><Timer size={13} /> {tpFalta(s.cierre)}</span>
+                </div>
+                <h3 className="pf-tp-sub-title">{s.titulo}</h3>
+                {s.nota && <p className="pf-muted" style={{ fontSize: 13, margin: "-4px 0 0" }}>{s.nota}</p>}
+                <p className="pf-muted" style={{ fontSize: 12, margin: 0 }}>Cierra {fechaHora(s.cierre)}</p>
+                <div className="pf-tp-sub-oferta" aria-live="polite">
+                  {s.oferta ? (
+                    <>
+                      <span className="l">Oferta más alta</span>
+                      <span className="n">{fmtTp(s.oferta.monto)}</span>
+                      <span className="w">{lider ? <b className="gold"><Trophy size={13} style={{ verticalAlign: -2 }} /> ¡Vas ganando!</b> : <>{s.oferta.nombre}{s.oferta.cursoNombre ? " · " + s.oferta.cursoNombre : ""}</>}</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="l">Sin ofertas aún</span>
+                      <span className="n">{fmtTp(s.minimo)}</span>
+                      <span className="w">oferta mínima</span>
+                    </>
+                  )}
+                </div>
+                {tpPerfil && !tpEditing && (
+                  conf ? (
+                    <div className="pf-tp-sub-conf" role="group" aria-label="Confirmar oferta">
+                      <span>¿Ofertar <b>{fmtTp(conf.monto)}</b>? Se reservan <b>{fmtTp(conf.cobrar)}</b> de tu saldo.</span>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button className="pf-tp-buy" disabled={tpBusy} onClick={() => tpOfertar(s.id, conf.monto)}>{tpBusy ? "Ofertando…" : "Sí, ofertar"}</button>
+                        <button className="pf-tp-buy off no" disabled={tpBusy} onClick={() => setTpOfertaConf(null)}>No</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="pf-tp-sub-bid">
+                      <label className="sr-only" htmlFor={"of-" + s.id}>Tu oferta para {s.titulo}</label>
+                      <input id={"of-" + s.id} className="pf-input" inputMode="numeric" value={tpOfertaIn[s.id] !== undefined ? tpOfertaIn[s.id] : fmtTp(min)} onChange={(e) => setTpOfertaIn((o) => ({ ...o, [s.id]: e.target.value }))} />
+                      <button className="pf-tp-buy" disabled={tpBusy} onClick={() => tpPrepararOferta(s)}>{lider ? "Subir oferta" : "Ofertar"}</button>
+                    </div>
+                  )
+                )}
+                {tpPerfil && !tpEditing && !conf && <p className="pf-muted" style={{ fontSize: 11.5, margin: 0 }}>Mínimo {fmtTp(min)} · sube de a {fmtTp(s.incremento || 1000)} o más</p>}
+                {tpSubMsg[s.id] && <p className="pf-tp-sub-msg" role="status">{tpSubMsg[s.id]}</p>}
+                {(s.historial || []).length > 0 && (
+                  <details className="pf-tp-sub-hist">
+                    <summary>Ver ofertas ({s.historial.length})</summary>
+                    {s.historial.slice(0, 8).map((h, i) => (
+                      <div key={i}><span>{h.nombre}{h.cursoNombre ? " · " + h.cursoNombre : ""}</span><b>{fmtTp(h.monto)}</b></div>
+                    ))}
+                  </details>
+                )}
+                {tpEsProfe && (
+                  pedirConf ? (
+                    <div className="pf-tp-sub-conf">
+                      <span>{pedirConf === "cerrar" ? "¿Cerrar ahora? Gana la oferta más alta." : "¿Cancelar? Se devuelven los terrapesos reservados."}</span>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button className="pf-tp-buy" disabled={tpBusy} onClick={() => tpAccionSubasta(s.id, pedirConf)}>Sí</button>
+                        <button className="pf-tp-buy off no" onClick={() => setTpSubAccion(null)}>No</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="pf-tp-sub-admin">
+                      <button className="pf-link-btn" onClick={() => setTpSubAccion({ id: s.id, accion: "cerrar" })}>Cerrar ahora</button>
+                      <button className="pf-link-btn" onClick={() => setTpSubAccion({ id: s.id, accion: "cancelar" })}>Cancelar y devolver</button>
+                    </div>
+                  )
+                )}
+              </article>
+            );
+          })}
+        </div>
+
+        {cerradas.length > 0 && (
+          <>
+            <div className="pf-eyebrow" style={{ margin: "26px 0 8px" }}>Subastas terminadas</div>
+            {cerradas.map((s) => {
+              const mia = esMia(s.oferta) && s.estado === "cerrada";
+              const cup = mia ? (tpCupones || []).find((c) => c.id === "sub-" + s.id) : null;
+              return (
+                <div className="pf-tp-item" key={s.id}>
+                  <div className="pf-tp-body">
+                    <div className="pf-tp-label">{s.titulo}</div>
+                    <div className="pf-tp-note">
+                      {s.estado === "cancelada" ? "Cancelada" : s.oferta ? (mia ? "¡La ganaste!" : "Ganó " + s.oferta.nombre + (s.oferta.cursoNombre ? " · " + s.oferta.cursoNombre : "")) : "Cerró sin ofertas"}
+                      {" · "}{fechaHora(s.cerradaEn || s.cierre)}
+                      {tpEsProfe && s.cupon ? " · cupón " + s.cupon : ""}
+                    </div>
+                  </div>
+                  {s.oferta && s.estado === "cerrada" && <div className="pf-tp-price">{fmtTp(s.oferta.monto)}</div>}
+                  {cup && <button className="pf-tp-buy" onClick={() => tpVerCupon(cup)}>Ver cupón</button>}
+                  {tpEsProfe && <button className="pf-link-btn" style={{ alignSelf: "center" }} disabled={tpBusy} onClick={() => tpAccionSubasta(s.id, "quitar")}>Quitar</button>}
+                </div>
+              );
+            })}
+          </>
+        )}
+      </>
     );
   };
 
@@ -1695,6 +2067,7 @@ function TerrapesosApp() {
 
         <div className="pf-tabs">
           <button className={"pf-tab" + (tpTab === "cambio" ? " active" : "")} onClick={() => setTpTab("cambio")}>Casa de Cambio</button>
+          <button className={"pf-tab" + (tpTab === "subastas" ? " active" : "")} onClick={() => setTpTab("subastas")}>Subastas{subastas.some((x) => x.estado === "abierta") && <span className="pf-tp-tab-dot" aria-label="hay subastas abiertas" />}</button>
           <button className={"pf-tab" + (tpTab === "ganar" ? " active" : "")} onClick={() => setTpTab("ganar")}>Cómo se ganan</button>
           <button className={"pf-tab" + (tpTab === "multas" ? " active" : "")} onClick={() => setTpTab("multas")}>Multas</button>
           <button className={"pf-tab" + (tpTab === "estudiantes" ? " active" : "")} onClick={() => setTpTab("estudiantes")}>Mis Terrapesos</button>
@@ -1737,6 +2110,8 @@ function TerrapesosApp() {
             </div>
           </>
         )}
+
+        {tpTab === "subastas" && renderSubastas()}
 
         {tpTab === "ganar" && (
           <>
