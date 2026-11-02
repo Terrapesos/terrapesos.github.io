@@ -26,6 +26,7 @@
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
 import { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 
 /* ------------------------------------------------------------
    Sustituto de window.storage (solo disponible dentro de
@@ -85,11 +86,56 @@ if (!window.storage) {
     },
   };
 }
+
+/* ------------------------------------------------------------
+   Inicio de sesión con Google (el mismo de Deusivenatura: mismo
+   proyecto de Firebase, así que el vínculo cuenta ↔ estudiante
+   es compartido entre ambos sitios).
+   IMPORTANTE: terrapesos.github.io debe estar en Firebase →
+   Authentication → Configuración → Dominios autorizados.
+   ------------------------------------------------------------ */
+const fbAuth = getAuth(fbApp);
+// Dominio del correo institucional (sin @). Vacío = cualquier cuenta Google (igual que en Deusivenatura).
+const TP_DOMINIO = "";
+// Correo(s) del profesor: ven el panel de canjes pendientes.
+const TP_ADMIN_EMAILS = ["fernandoferna111@gmail.com"];
+window.tpAuth = {
+  onChange(cb) {
+    return onAuthStateChanged(fbAuth, (u) => {
+      if (!u) return cb(null);
+      const mail = String(u.email || "").toLowerCase();
+      cb({ uid: u.uid, email: u.email || "", nombre: u.displayName || "", foto: u.photoURL || "",
+           esAdmin: TP_ADMIN_EMAILS.includes(mail),
+           permitido: !TP_DOMINIO || TP_ADMIN_EMAILS.includes(mail) || mail.endsWith("@" + TP_DOMINIO) });
+    });
+  },
+  async entrar() {
+    const p = new GoogleAuthProvider();
+    p.setCustomParameters({ prompt: "select_account", ...(TP_DOMINIO ? { hd: TP_DOMINIO } : {}) });
+    try { await signInWithPopup(fbAuth, p); return ""; }
+    catch (e) {
+      const c = e && e.code;
+      if (c === "auth/popup-blocked" || c === "auth/operation-not-supported-in-this-environment") {
+        try { await signInWithRedirect(fbAuth, p); return ""; } catch (e2) { return "No se pudo abrir el inicio de sesión. Prueba en otro navegador."; }
+      }
+      if (c === "auth/popup-closed-by-user" || c === "auth/cancelled-popup-request") return "";
+      if (c === "auth/unauthorized-domain") return "Este sitio aún no está autorizado en Firebase (Authentication → Configuración → Dominios autorizados → agregar terrapesos.github.io).";
+      return "No se pudo iniciar sesión (" + (c || "error") + "). Intenta de nuevo.";
+    }
+  },
+  async salir() { try { await signOut(fbAuth); } catch (e) {} },
+};
 import React, { useState, useMemo, useEffect } from "react";
 import { createRoot } from "react-dom/client";
-import { Coins, Pencil, Save, Plus, Trash2, Check, X, ArrowRight, Info } from "lucide-react";
+import { Coins, Pencil, Save, Plus, Trash2, Check, X, ArrowRight, Info, Wallet, ShoppingBag, LogIn, LogOut, Clock, Undo2, CheckCircle2 } from "lucide-react";
 
 const MOVIMIENTOS_KEY = "terrapesos-movimientos";
+// Cuenta Google ↔ estudiante: mismas claves que usa Deusivenatura (el vínculo se comparte).
+const perfilKey = (uid) => "perfil-" + uid;
+const vinculoKey = (cursoId, nombre) => "vinculo-" + cursoId + "-" + String(nombre).replace(/[\/\s.]+/g, "_");
+const numTp = (p) => parseInt(String(p).replace(/[.\s]/g, ""), 10) || 0;
+// Historial: máximo 150, pero nunca se borra un canje que aún no se entrega.
+const recortarMovs = (l) => l.slice(0, 150).concat(l.slice(150).filter((m) => m && m.tipo === "canje" && m.estado === "pendiente"));
 
 const TERRAPESOS_STORAGE_KEY = "terrapesos-data-v1";
 // Clave simple para entrar a modo edición en Terrapesos (link publicado).
@@ -942,6 +988,46 @@ footer.pf-footer { letter-spacing: .5px; }
 
 @media (prefers-reduced-motion: reduce) { .pf-podium-item.first { animation: none !important; } }
 
+/* ---------- Tienda / monedero del estudiante ---------- */
+.pf-tp-wallet { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 0 0 24px; padding: 18px 20px; border-radius: 18px;
+  background: linear-gradient(160deg, rgba(139,92,246,.14), rgba(34,211,238,.07)); border: 1px solid rgba(139,92,246,.35); backdrop-filter: blur(6px); box-shadow: 0 0 30px rgba(139,92,246,.12); }
+.pf-tp-wallet.column { flex-direction: column; align-items: flex-start; }
+.pf-tp-wallet.profe { background: linear-gradient(160deg, rgba(233,196,106,.12), rgba(16,22,41,.7)); border-color: rgba(233,196,106,.45); }
+.pf-tp-wallet-ico { width: 44px; height: 44px; flex-shrink: 0; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: var(--gold); background: rgba(233,196,106,.10); border: 1px solid rgba(233,196,106,.5); box-shadow: 0 0 16px rgba(233,196,106,.25); }
+.pf-tp-wallet-foto { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; border: 2px solid var(--gold); flex-shrink: 0; }
+.pf-tp-wallet-title { font-family: 'Cormorant Garamond', serif; font-size: 23px; font-weight: 700; line-height: 1.15; display: flex; align-items: center; gap: 8px; }
+.pf-tp-wallet-text { font-size: 13.5px; margin: 3px 0 0; }
+.pf-tp-wallet-err { color: #FCA5A5; font-size: 13px; margin: 6px 0 0; }
+.pf-tp-wallet-saldo { display: flex; flex-direction: column; align-items: flex-end; line-height: 1; }
+.pf-tp-wallet-saldo .n { font-family: 'Cinzel', 'Cormorant Garamond', serif; font-weight: 700; font-size: 30px; background: linear-gradient(180deg, #FFFFFF 10%, #E9C46A 60%, #B98B33 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.pf-tp-wallet-saldo .l { font-size: 11px; color: var(--text-muted); margin-top: 4px; letter-spacing: .5px; }
+.pf-tp-wallet-canjes { width: 100%; border-top: 1px solid rgba(255,255,255,.08); padding-top: 12px; }
+.pf-tp-wallet-canje { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; width: 100%; padding: 9px 12px; margin-top: 6px; border-radius: 12px; background: rgba(8,11,20,.45); border: 1px solid rgba(255,255,255,.07); font-size: 14px; }
+.pf-tp-badge { font-family: 'Manrope', sans-serif; font-size: 12px; font-weight: 800; color: #080B14; background: var(--gold); border-radius: 999px; padding: 2px 9px; }
+.pf-tp-estado { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px; white-space: nowrap; border: 1px solid; vertical-align: 1px; }
+.pf-tp-estado.pendiente { color: var(--gold); border-color: rgba(233,196,106,.5); background: rgba(233,196,106,.10); }
+.pf-tp-estado.entregado { color: #4ADE80; border-color: rgba(74,222,128,.45); background: rgba(74,222,128,.08); }
+.pf-tp-estado.devuelto { color: var(--text-muted); border-color: rgba(169,177,204,.35); background: rgba(169,177,204,.06); }
+.pf-tp-buy { align-self: center; flex-shrink: 0; margin-left: 4px; font: 700 12.5px/1 'Manrope', sans-serif; padding: 8px 12px; border-radius: 10px; cursor: pointer; border: none; color: #080B14;
+  background: linear-gradient(110deg, #A78BFA, #22D3EE); box-shadow: 0 0 14px rgba(139,92,246,.35); transition: transform .15s, box-shadow .2s; white-space: nowrap; }
+.pf-tp-buy:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 0 22px rgba(34,211,238,.5); }
+.pf-tp-buy.off { background: rgba(255,255,255,.05); color: var(--text-muted); border: 1px solid rgba(255,255,255,.1); box-shadow: none; cursor: not-allowed; font-weight: 600; }
+.pf-btn-sm { padding: 7px 11px; font-size: 12.5px; border-radius: 10px; }
+.pf-btn:disabled { opacity: .55; cursor: not-allowed; transform: none; }
+.pf-link-btn { background: none; border: none; padding: 0; font: inherit; font-size: 13px; color: var(--cyan); cursor: pointer; }
+.pf-link-btn:hover { color: var(--gold); }
+.pf-chip-on { background: var(--gold) !important; color: #080B14 !important; border-color: var(--gold) !important; font-weight: 700; }
+.pf-tp-confirm-grid { display: grid; grid-template-columns: 1fr auto; gap: 8px 16px; padding: 14px 16px; border-radius: 12px; background: rgba(8,11,20,.5); border: 1px solid rgba(139,92,246,.22); font-size: 14px; }
+.pf-tp-confirm-grid b { font-family: 'Cormorant Garamond', serif; font-size: 19px; text-align: right; }
+.pf-tp-confirm-grid b.gold { color: var(--gold); }
+.pf-tp-userchip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px 6px 6px; border-radius: 999px; cursor: pointer; font: 600 13px 'Manrope', sans-serif; color: var(--text);
+  background: rgba(255,255,255,.05); border: 1px solid rgba(233,196,106,.45); transition: box-shadow .2s, border-color .2s; }
+.pf-tp-userchip:hover { border-color: var(--gold); box-shadow: 0 0 18px rgba(233,196,106,.3); }
+.pf-tp-userchip img { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; }
+.pf-tp-userchip b { font-family: 'Cormorant Garamond', serif; font-size: 16px; color: var(--gold); }
+.pf-tp-userchip:not(:has(img)) { padding-left: 12px; }
+@media (max-width: 600px) { .pf-tp-wallet-saldo { align-items: flex-start; } .pf-tp-userchip .nm { display: none; } .pf-tp-item { flex-wrap: wrap; } .pf-tp-buy { margin-left: auto; } }
+
 `;
 
 function TpEditableText({ value, onChange, tpEditing }) {
@@ -949,7 +1035,7 @@ function TpEditableText({ value, onChange, tpEditing }) {
   return <textarea className="pf-reflection" value={value} onChange={(e) => onChange(e.target.value)} />;
 }
 
-function TpRow({ item, tier, danger, onChangeField, onRemove, tpEditing }) {
+function TpRow({ item, tier, danger, onChangeField, onRemove, tpEditing, accion }) {
   return (
     <div className={"pf-tp-item" + (danger ? " danger" : "")}>
       {tier && <div className="pf-tp-dot" style={{ background: TERRAPESOS_TIERS[tier]?.hex || "#4ADE80" }} />}
@@ -971,6 +1057,7 @@ function TpRow({ item, tier, danger, onChangeField, onRemove, tpEditing }) {
       ) : (
         <div className="pf-tp-price">{showTp(item.price)}</div>
       )}
+      {accion}
       {tpEditing && <button className="pf-tp-remove" onClick={onRemove}>×</button>}
     </div>
   );
@@ -1155,8 +1242,9 @@ function TerrapesosApp() {
   const [tpMovs, setTpMovs] = useState(null);
   const tpMontoNum = () => Math.abs(parseInt(String(tpMonto).replace(/[.\s]/g, ""), 10)) || 0;
 
+  const [tpMovsTick, setTpMovsTick] = useState(0);
   useEffect(() => {
-    if (tpTab !== "movimientos") return;
+    if (tpTab !== "movimientos" && tpTab !== "cambio") return;
     let vivo = true;
     (async () => {
       try {
@@ -1167,7 +1255,7 @@ function TerrapesosApp() {
       }
     })();
     return () => { vivo = false; };
-  }, [tpTab]);
+  }, [tpTab, tpMovsTick]);
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 3500);
@@ -1208,7 +1296,7 @@ function TerrapesosApp() {
           const r2 = await window.storage.get(MOVIMIENTOS_KEY, true);
           if (r2 && r2.value) lista = JSON.parse(r2.value);
         } catch (e2) { /* aún no existe el historial */ }
-        const nuevo = [{ t: new Date().toISOString(), curso: curso.nombre, nombre, delta, motivo: tpMotivo.trim() }, ...lista].slice(0, 150);
+        const nuevo = recortarMovs([{ t: new Date().toISOString(), curso: curso.nombre, nombre, delta, motivo: tpMotivo.trim() }, ...lista]);
         await window.storage.set(MOVIMIENTOS_KEY, JSON.stringify(nuevo), true);
         setTpMovs(nuevo);
       } catch (e) {}
@@ -1216,6 +1304,277 @@ function TerrapesosApp() {
     } catch (e) {
       setToast("No se pudo guardar. Intenta nuevamente.");
     }
+  };
+
+  /* ============================================================
+     SESIÓN GOOGLE + TIENDA (canjes individuales)
+     - El estudiante entra con Google y queda vinculado a su nombre
+       (vínculo compartido con Deusivenatura).
+     - Canjear descuenta de inmediato el saldo y deja el canje
+       "por entregar" en el historial de movimientos.
+     - El profesor (correo admin o modo edición) marca cada canje
+       como entregado o lo devuelve (reintegra los terrapesos).
+     ============================================================ */
+  const [tpUser, setTpUser] = useState(null);
+  const [tpPerfil, setTpPerfil] = useState(null);
+  const [tpSesionLista, setTpSesionLista] = useState(false);
+  const [tpAuthErr, setTpAuthErr] = useState("");
+  const [tpVinc, setTpVinc] = useState({ curso: "", nombre: "" });
+  const [tpCompra, setTpCompra] = useState(null);
+  const [tpBusy, setTpBusy] = useState(false);
+
+  const tpRecargar = async () => {
+    try {
+      const res = await window.storage.get(TERRAPESOS_STORAGE_KEY, true);
+      if (res && res.value) {
+        const fresh = { ...TERRAPESOS_DEFAULT, ...JSON.parse(res.value) };
+        setTpData((cur) => (tpEditing ? cur : fresh));
+        return fresh;
+      }
+    } catch (e) {}
+    return null;
+  };
+
+  useEffect(() => {
+    if (!window.tpAuth) { setTpSesionLista(true); return; }
+    return window.tpAuth.onChange(async (u) => {
+      if (!u) { setTpUser(null); setTpPerfil(null); setTpSesionLista(true); return; }
+      if (!u.permitido) {
+        setTpAuthErr("Usa tu cuenta institucional. La cuenta " + u.email + " no está permitida.");
+        await window.tpAuth.salir();
+        return;
+      }
+      setTpAuthErr("");
+      setTpUser(u);
+      try {
+        const r = await window.storage.get(perfilKey(u.uid), true);
+        setTpPerfil(JSON.parse(r.value));
+      } catch (e) { setTpPerfil(null); }
+      setTpSesionLista(true);
+      tpRecargar();
+    });
+  }, []);
+
+  const tpEntrar = async () => { setTpAuthErr(""); const msg = await window.tpAuth.entrar(); if (msg) setTpAuthErr(msg); };
+  const tpSalir = async () => { await window.tpAuth.salir(); setTpUser(null); setTpPerfil(null); };
+
+  const tpVincular = async () => {
+    const { curso, nombre } = tpVinc;
+    if (!tpUser || !curso || !nombre) return;
+    setTpBusy(true);
+    try {
+      try {
+        const r = await window.storage.get(vinculoKey(curso, nombre), true);
+        const v = JSON.parse(r.value);
+        if (v && v.uid && v.uid !== tpUser.uid) { setToast("Ese nombre ya está vinculado a otra cuenta. Si es un error, avísale a tu profesor/a."); return; }
+      } catch (e) { /* sin vínculo previo */ }
+      const fecha = new Date().toISOString();
+      const perfil = { uid: tpUser.uid, email: tpUser.email, curso, nombre, fecha };
+      await window.storage.set(vinculoKey(curso, nombre), JSON.stringify({ uid: tpUser.uid, curso, nombre, fecha }), true);
+      await window.storage.set(perfilKey(tpUser.uid), JSON.stringify(perfil), true);
+      setTpPerfil(perfil);
+      setToast("¡Listo, " + nombre.split(" ")[0] + "! Tu cuenta quedó vinculada.");
+    } catch (e) {
+      setToast("No se pudo guardar el vínculo. Revisa tu conexión e intenta de nuevo.");
+    } finally { setTpBusy(false); }
+  };
+
+  const tpMiEst = tpPerfil ? ((tpData.estudiantesPorCurso || []).find((c) => c.id === tpPerfil.curso)?.estudiantes || []).find((e) => e.label === tpPerfil.nombre) : null;
+  const tpMiSaldo = tpMiEst ? numTp(tpMiEst.price) : null;
+  const tpEsProfe = tpEditing || !!(tpUser && tpUser.esAdmin);
+
+  // Escribe un saldo nuevo leyendo SIEMPRE el dato más reciente del servidor.
+  const tpCambiarSaldo = async (cursoId, nombre, delta, exigirSaldo) => {
+    const res = await window.storage.get(TERRAPESOS_STORAGE_KEY, true);
+    const latest = { ...TERRAPESOS_DEFAULT, ...JSON.parse(res.value) };
+    let antes = null, cursoNombre = "";
+    const updated = { ...latest, estudiantesPorCurso: latest.estudiantesPorCurso.map((c) => {
+      if (c.id !== cursoId) return c;
+      cursoNombre = c.nombre;
+      return { ...c, estudiantes: c.estudiantes.map((e) => {
+        if (e.label !== nombre) return e;
+        antes = numTp(e.price);
+        return { ...e, price: addTerrapesos(e.price, delta) };
+      }) };
+    }) };
+    if (antes === null) return { error: "No encontré tu nombre en la lista de Terrapesos." };
+    if (exigirSaldo && antes + delta < 0) return { falta: -(antes + delta), saldo: antes, data: latest };
+    await window.storage.set(TERRAPESOS_STORAGE_KEY, JSON.stringify(updated), true);
+    if (!tpEditing) setTpData(updated);
+    return { saldo: antes + delta, cursoNombre };
+  };
+  const tpAgregarMov = async (mov) => {
+    let lista = [];
+    try { const r = await window.storage.get(MOVIMIENTOS_KEY, true); if (r && r.value) lista = JSON.parse(r.value); } catch (e) {}
+    const nuevo = recortarMovs([mov, ...lista]);
+    await window.storage.set(MOVIMIENTOS_KEY, JSON.stringify(nuevo), true);
+    setTpMovs(nuevo);
+  };
+
+  const tpConfirmarCompra = async () => {
+    const item = tpCompra;
+    if (!item || !tpPerfil || !tpUser) return;
+    const precio = numTp(item.price);
+    if (!precio) { setToast("Este beneficio no tiene precio."); return; }
+    setTpBusy(true);
+    try {
+      const r = await tpCambiarSaldo(tpPerfil.curso, tpPerfil.nombre, -precio, true);
+      if (r.error) { setToast(r.error); return; }
+      if (r.falta) { setToast("Te faltan " + fmtTp(r.falta) + " terrapesos."); if (r.data) setTpData(r.data); return; }
+      try {
+        await tpAgregarMov({
+          t: new Date().toISOString(), curso: r.cursoNombre, cursoId: tpPerfil.curso, nombre: tpPerfil.nombre,
+          delta: -precio, motivo: "Canje: " + item.label, tipo: "canje", beneficio: item.label,
+          id: "cj-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7), estado: "pendiente", uid: tpUser.uid,
+        });
+      } catch (e) {
+        try { await tpCambiarSaldo(tpPerfil.curso, tpPerfil.nombre, precio, false); } catch (e2) {}
+        setToast("No se pudo completar el canje. No se te cobró nada.");
+        return;
+      }
+      setTpCompra(null);
+      setToast("¡Canjeaste " + item.label + "! Te quedan " + fmtTp(r.saldo) + ". Tu profe te lo entregará en clases.");
+    } catch (e) {
+      setToast("No se pudo completar el canje. Intenta de nuevo.");
+    } finally { setTpBusy(false); }
+  };
+
+  // Profesor: marcar canje como entregado o devolverlo (reintegra los terrapesos).
+  const tpResolverCanje = async (canje, accion) => {
+    setTpBusy(true);
+    try {
+      const r = await window.storage.get(MOVIMIENTOS_KEY, true);
+      const lista = r && r.value ? JSON.parse(r.value) : [];
+      const actual = lista.find((m) => m.id === canje.id);
+      if (!actual || actual.estado !== "pendiente") { setToast("Ese canje ya fue resuelto."); setTpMovs(lista); return; }
+      if (accion === "devuelto") {
+        const cursoId = canje.cursoId || ((tpData.estudiantesPorCurso || []).find((c) => c.nombre === canje.curso) || {}).id;
+        const res = await tpCambiarSaldo(cursoId, canje.nombre, -canje.delta, false);
+        if (res.error) { setToast("No encontré a " + canje.nombre + " en la lista."); return; }
+      }
+      const marcada = lista.map((m) => (m.id === canje.id ? { ...m, estado: accion, resuelto: new Date().toISOString() } : m));
+      const final = accion === "devuelto"
+        ? recortarMovs([{ t: new Date().toISOString(), curso: canje.curso, cursoId: canje.cursoId, nombre: canje.nombre, delta: -canje.delta, motivo: "Devolución: " + (canje.beneficio || canje.motivo) }, ...marcada])
+        : marcada;
+      await window.storage.set(MOVIMIENTOS_KEY, JSON.stringify(final), true);
+      setTpMovs(final);
+      setToast(accion === "entregado" ? "Canje marcado como entregado ✓" : "Canje devuelto: se reintegraron " + fmtTp(-canje.delta) + " terrapesos.");
+    } catch (e) {
+      setToast("No se pudo guardar. Intenta nuevamente.");
+    } finally { setTpBusy(false); }
+  };
+
+  const tpEstadoChip = (estado) => (
+    <span className={"pf-tp-estado " + (estado || "")}>
+      {estado === "pendiente" ? <><Clock size={11} /> Por entregar</> : estado === "entregado" ? <><CheckCircle2 size={11} /> Entregado</> : estado === "devuelto" ? <><Undo2 size={11} /> Devuelto</> : estado}
+    </span>
+  );
+
+  const renderMonedero = () => {
+    if (!window.tpAuth || !tpSesionLista || tpEditing) return null;
+    if (!tpUser) {
+      return (
+        <div className="pf-tp-wallet">
+          <div className="pf-tp-wallet-ico"><Wallet size={22} /></div>
+          <div style={{ flex: 1, minWidth: 220 }}>
+            <div className="pf-tp-wallet-title">Canjea tus terrapesos aquí</div>
+            <p className="pf-muted pf-tp-wallet-text">Entra con tu cuenta Google para ver tu saldo y canjear beneficios.</p>
+            {tpAuthErr && <p className="pf-tp-wallet-err">{tpAuthErr}</p>}
+          </div>
+          <button className="pf-btn pf-btn-primary" onClick={tpEntrar}><LogIn size={16} /> Entrar con Google</button>
+        </div>
+      );
+    }
+    if (!tpPerfil) {
+      if (tpUser.esAdmin) return null; // el profesor no se vincula a un estudiante
+      const cursos = tpData.estudiantesPorCurso || [];
+      const cursoObj = cursos.find((c) => c.id === tpVinc.curso);
+      return (
+        <div className="pf-tp-wallet column">
+          <div style={{ display: "flex", alignItems: "center", gap: 12, width: "100%" }}>
+            <div className="pf-tp-wallet-ico"><Wallet size={22} /></div>
+            <div style={{ flex: 1 }}>
+              <div className="pf-tp-wallet-title">Vincula tu cuenta</div>
+              <p className="pf-muted pf-tp-wallet-text">Elige tu curso y tu nombre. Se hace una sola vez (si ya lo hiciste en Deusivenatura, no hace falta).</p>
+            </div>
+            <button className="pf-link-btn" onClick={tpSalir}>Salir</button>
+          </div>
+          <div className="pf-chip-row">
+            {cursos.map((c) => (
+              <button key={c.id} className={"pf-chip" + (tpVinc.curso === c.id ? " pf-chip-on" : "")} style={{ cursor: "pointer" }} onClick={() => setTpVinc({ curso: c.id, nombre: "" })}>{c.nombre}</button>
+            ))}
+          </div>
+          {cursoObj && (
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", width: "100%" }}>
+              <select className="pf-select" style={{ flex: 1, minWidth: 200 }} value={tpVinc.nombre} onChange={(e) => setTpVinc((v) => ({ ...v, nombre: e.target.value }))}>
+                <option value="">Elige tu nombre…</option>
+                {cursoObj.estudiantes.map((e) => <option key={e.label} value={e.label}>{e.label}</option>)}
+              </select>
+              <button className="pf-btn pf-btn-primary" disabled={!tpVinc.nombre || tpBusy} onClick={tpVincular}><Check size={16} /> Soy yo</button>
+            </div>
+          )}
+        </div>
+      );
+    }
+    const cursoNom = ((tpData.estudiantesPorCurso || []).find((c) => c.id === tpPerfil.curso) || {}).nombre || "";
+    const misCanjes = (tpMovs || []).filter((m) => m.tipo === "canje" && (m.uid === tpUser.uid || (m.nombre === tpPerfil.nombre && m.cursoId === tpPerfil.curso))).slice(0, 5);
+    return (
+      <div className="pf-tp-wallet column">
+        <div style={{ display: "flex", alignItems: "center", gap: 14, width: "100%", flexWrap: "wrap" }}>
+          {tpUser.foto ? <img className="pf-tp-wallet-foto" src={tpUser.foto} alt="" referrerPolicy="no-referrer" /> : <div className="pf-tp-wallet-ico"><Wallet size={22} /></div>}
+          <div style={{ flex: 1, minWidth: 160 }}>
+            <div className="pf-tp-wallet-title">Hola, {tpPerfil.nombre.split(" ")[0]}</div>
+            <div className="pf-muted" style={{ fontSize: 13 }}>{tpPerfil.nombre}{cursoNom ? " · " + cursoNom : ""}</div>
+          </div>
+          <div className="pf-tp-wallet-saldo">
+            <span className="n">{tpMiSaldo === null ? "—" : fmtTp(tpMiSaldo)}</span>
+            <span className="l">terrapesos disponibles</span>
+          </div>
+          <button className="pf-link-btn" onClick={tpSalir} title="Cerrar sesión"><LogOut size={14} style={{ verticalAlign: -2 }} /> Salir</button>
+        </div>
+        {tpMiSaldo === null && <p className="pf-tp-wallet-err">No encontré tu nombre en la lista actual. Avísale a tu profesor/a.</p>}
+        <div className="pf-tp-wallet-canjes">
+          <div className="pf-eyebrow" style={{ marginBottom: 6 }}>Mis canjes</div>
+          {misCanjes.length === 0
+            ? <p className="pf-muted" style={{ fontSize: 13, margin: 0 }}>Aún no canjeas nada. Elige un beneficio individual y presiona <b>Canjear</b>.</p>
+            : misCanjes.map((m) => (
+              <div className="pf-tp-wallet-canje" key={m.id}>
+                <span style={{ flex: 1, minWidth: 0 }}>{m.beneficio || m.motivo}<span className="pf-muted" style={{ fontSize: 11.5 }}> · {new Date(m.t).toLocaleDateString("es-CL")}</span></span>
+                <span className="pf-tp-price" style={{ minWidth: 0 }}>{fmtTp(-m.delta)}</span>
+                {tpEstadoChip(m.estado)}
+              </div>
+            ))}
+        </div>
+      </div>
+    );
+  };
+
+  const renderCanjesProfe = () => {
+    if (!tpEsProfe) return null;
+    const pend = (tpMovs || []).filter((m) => m.tipo === "canje" && m.estado === "pendiente");
+    return (
+      <div className="pf-tp-wallet column profe">
+        <div style={{ display: "flex", alignItems: "center", gap: 12, width: "100%" }}>
+          <div className="pf-tp-wallet-ico"><ShoppingBag size={22} /></div>
+          <div style={{ flex: 1 }}>
+            <div className="pf-tp-wallet-title">Canjes por entregar {pend.length > 0 && <span className="pf-tp-badge">{pend.length}</span>}</div>
+            <p className="pf-muted pf-tp-wallet-text">Los terrapesos ya se descontaron. Marca cada canje cuando entregues el beneficio, o devuélvelo si no corresponde.</p>
+          </div>
+        </div>
+        {tpMovs === null && <p className="pf-muted" style={{ fontSize: 13, margin: 0 }}>Cargando…</p>}
+        {tpMovs && pend.length === 0 && <p className="pf-muted" style={{ fontSize: 13, margin: 0 }}>No hay canjes pendientes.</p>}
+        {pend.map((m) => (
+          <div className="pf-tp-wallet-canje" key={m.id}>
+            <span style={{ flex: 1, minWidth: 180 }}><b>{m.nombre}</b> <span className="pf-muted" style={{ fontSize: 12 }}>· {m.curso}</span><br /><span style={{ fontSize: 13 }}>{m.beneficio || m.motivo}</span> <span className="pf-muted" style={{ fontSize: 11.5 }}>· {new Date(m.t).toLocaleString("es-CL", { dateStyle: "short", timeStyle: "short" })}</span></span>
+            <span className="pf-tp-price" style={{ minWidth: 0 }}>{fmtTp(-m.delta)}</span>
+            <span style={{ display: "flex", gap: 6 }}>
+              <button className="pf-btn pf-btn-primary pf-btn-sm" disabled={tpBusy} onClick={() => tpResolverCanje(m, "entregado")}><Check size={14} /> Entregado</button>
+              <button className="pf-btn pf-btn-secondary pf-btn-sm" disabled={tpBusy} onClick={() => tpResolverCanje(m, "devuelto")}><Undo2 size={14} /> Devolver</button>
+            </span>
+          </div>
+        ))}
+      </div>
+    );
   };
 
   const renderTerrapesos = () => {
@@ -1273,18 +1632,25 @@ function TerrapesosApp() {
 
         {tpTab === "cambio" && (
           <>
+            {renderCanjesProfe()}
+            {renderMonedero()}
             <div className="pf-tp-columns">
               <div>
                 <div className="pf-tp-col-title">Beneficios individuales</div>
                 <div className="pf-tp-col-desc">Se pagan con tus propios terrapesos, cuando quieras canjearlos.</div>
                 {d.individual.map((item, i) => (
-                  <TpRow tpEditing={tpEditing} key={i} item={item} tier={item.tier} onChangeField={(f, v) => tpUpdateListItem("individual", i, f, v)} onRemove={() => tpRemoveListItem("individual", i)} />
+                  <TpRow tpEditing={tpEditing} key={i} item={item} tier={item.tier} onChangeField={(f, v) => tpUpdateListItem("individual", i, f, v)} onRemove={() => tpRemoveListItem("individual", i)}
+                    accion={tpPerfil && !tpEditing && tpMiSaldo !== null ? (() => {
+                      const precio = numTp(item.price);
+                      const alcanza = tpMiSaldo >= precio && precio > 0;
+                      return <button className={"pf-tp-buy" + (alcanza ? "" : " off")} disabled={!alcanza} onClick={() => setTpCompra(item)} title={alcanza ? "Canjear este beneficio" : "Aún no te alcanza"}>{alcanza ? "Canjear" : "Faltan " + fmtTp(precio - tpMiSaldo)}</button>;
+                    })() : null} />
                 ))}
                 {tpEditing && <button className="pf-tp-add-row" onClick={() => tpAddListItem("individual", true)}><Plus size={13} style={{ verticalAlign: -2 }} /> Agregar beneficio</button>}
               </div>
               <div>
                 <div className="pf-tp-col-title">Beneficios en grupo</div>
-                <div className="pf-tp-col-desc">Se juntan entre varios estudiantes, aportando terrapesos cada uno.</div>
+                <div className="pf-tp-col-desc">Se juntan entre varios estudiantes, aportando terrapesos cada uno.{tpPerfil && !tpEditing ? " Para estos, coordina con tu curso y avísale a tu profesor/a." : ""}</div>
                 {d.grupo.map((item, i) => (
                   <TpRow tpEditing={tpEditing} key={i} item={item} tier={item.tier} onChangeField={(f, v) => tpUpdateListItem("grupo", i, f, v)} onRemove={() => tpRemoveListItem("grupo", i)} />
                 ))}
@@ -1493,14 +1859,14 @@ function TerrapesosApp() {
         {tpTab === "movimientos" && (
           <>
             <div className="pf-tp-col-title">Últimos movimientos</div>
-            <div className="pf-tp-col-desc">Cada vez que un profesor suma o resta terrapesos queda registrado aquí.</div>
+            <div className="pf-tp-col-desc">Cada vez que se suman, restan o canjean terrapesos queda registrado aquí.</div>
             {tpMovs === null && <p className="pf-muted" style={{ fontSize: 13 }}>Cargando…</p>}
             {tpMovs && tpMovs.length === 0 && <p className="pf-muted" style={{ fontSize: 13.5 }}>Todavía no hay movimientos registrados.</p>}
             {(tpMovs || []).map((m, i) => (
               <div className="pf-tp-item" key={i}>
                 <div className="pf-tp-body">
                   <div className="pf-tp-label">{m.nombre} <span className="pf-muted" style={{ fontSize: 12 }}>· {m.curso}</span></div>
-                  <div className="pf-tp-note">{new Date(m.t).toLocaleString("es-CL", { dateStyle: "short", timeStyle: "short" })}{m.motivo ? " · " + m.motivo : ""}</div>
+                  <div className="pf-tp-note">{new Date(m.t).toLocaleString("es-CL", { dateStyle: "short", timeStyle: "short" })}{m.motivo ? " · " + m.motivo : ""} {m.tipo === "canje" && tpEstadoChip(m.estado)}</div>
                 </div>
                 <div className="pf-tp-price" style={{ color: m.delta < 0 ? "#FB7185" : "#4ADE80" }}>{m.delta > 0 ? "+" : ""}{fmtTp(m.delta)}</div>
               </div>
@@ -1509,6 +1875,28 @@ function TerrapesosApp() {
         )}
 
         {!tpLoaded && <p className="pf-muted" style={{ marginTop: 18, fontSize: 12.5 }}>Cargando valores guardados…</p>}
+
+        {tpCompra && (
+          <div className="pf-search-overlay" onClick={() => !tpBusy && setTpCompra(null)}>
+            <div className="pf-search-panel" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
+              <div style={{ padding: "22px 22px 6px" }}>
+                <div className="pf-eyebrow" style={{ marginBottom: 8 }}>Confirmar canje</div>
+                <h3 className="pf-serif" style={{ fontSize: 26, margin: "0 0 4px" }}>{tpCompra.label}</h3>
+                {tpCompra.note && <p className="pf-muted" style={{ fontSize: 13, margin: "0 0 14px" }}>{tpCompra.note}</p>}
+                <div className="pf-tp-confirm-grid">
+                  <span>Precio</span><b>{showTp(tpCompra.price)}</b>
+                  <span>Tu saldo</span><b>{fmtTp(tpMiSaldo || 0)}</b>
+                  <span>Te quedarán</span><b className="gold">{fmtTp((tpMiSaldo || 0) - numTp(tpCompra.price))}</b>
+                </div>
+                <p className="pf-muted" style={{ fontSize: 12.5, margin: "14px 0 0" }}>Los terrapesos se descuentan ahora. Tu profesor/a verá el canje y te entregará el beneficio en clases.</p>
+              </div>
+              <div style={{ display: "flex", gap: 10, padding: "16px 22px 22px" }}>
+                <button className="pf-btn pf-btn-primary" disabled={tpBusy} onClick={tpConfirmarCompra}><ShoppingBag size={15} /> {tpBusy ? "Canjeando…" : "Confirmar canje"}</button>
+                <button className="pf-btn pf-btn-secondary" disabled={tpBusy} onClick={() => setTpCompra(null)}>Cancelar</button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {tpAskingPin && (
           <div className="pf-search-overlay" onClick={() => setTpAskingPin(false)}>
@@ -1551,6 +1939,17 @@ function TerrapesosApp() {
                 <div className="pf-logo-sub">El monedero de la clase</div>
               </div>
             </div>
+            {window.tpAuth && tpSesionLista && (
+              tpUser ? (
+                <button className="pf-tp-userchip" onClick={() => setTpTab("cambio")} title="Mi monedero">
+                  {tpUser.foto ? <img src={tpUser.foto} alt="" referrerPolicy="no-referrer" /> : <Wallet size={16} />}
+                  <span className="nm">{tpPerfil ? tpPerfil.nombre.split(" ")[0] : "Mi cuenta"}</span>
+                  {tpMiSaldo !== null && <b>{fmtTp(tpMiSaldo)}</b>}
+                </button>
+              ) : (
+                <button className="pf-tp-userchip" onClick={() => { setTpTab("cambio"); tpEntrar(); }}><LogIn size={15} /> <span className="nm">Entrar</span></button>
+              )
+            )}
           </div>
         </header>
         {renderTerrapesos()}
