@@ -1089,6 +1089,18 @@ footer.pf-footer { letter-spacing: .5px; }
 .pf-tp-cupon-panel { max-width: 720px; }
 .pf-tp-cupon-img { display: block; width: 100%; height: auto; border-radius: 14px; }
 a.pf-btn { text-decoration: none; }
+/* ---------- Panel docente ---------- */
+.pf-tp-profe-tag { font-size: 9.5px; font-weight: 800; letter-spacing: .8px; text-transform: uppercase; color: #080B14; background: var(--gold); border-radius: 999px; padding: 1px 6px; margin-left: 4px; vertical-align: 2px; }
+.pf-tp-panel-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin: 6px 0 16px; }
+.pf-tp-panel-stats > div { display: flex; flex-direction: column; padding: 12px 14px; border-radius: 14px; background: rgba(16,22,41,.7); border: 1px solid rgba(139,92,246,.25); }
+.pf-tp-panel-stats .n { font-family: 'Cormorant Garamond', serif; font-weight: 700; font-size: 28px; line-height: 1.1; color: var(--text); }
+.pf-tp-panel-stats .n.gold { color: var(--gold); }
+.pf-tp-panel-stats .l { font-size: 11.5px; color: var(--text-muted); letter-spacing: .4px; }
+.pf-tp-panel-filtros { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+.pf-tp-panel-filtros .pf-chip-row { margin: 0; }
+.pf-tp-panel-filtros .pf-input { flex: 1; min-width: 200px; }
+.pf-tp-estado.gasto { color: var(--cyan); border-color: rgba(34,211,238,.4); background: rgba(34,211,238,.08); margin-left: 4px; }
+
 /* ---------- Subastas ---------- */
 .pf-tp-tab-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 8px var(--gold); margin-left: 6px; vertical-align: 2px; }
 .pf-tp-sub-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 4px 0 18px; font-size: 14px; }
@@ -1569,6 +1581,7 @@ function TerrapesosApp() {
         return { ok: false, msg: "No se pudo generar el cupón. No se te cobró nada." };
       }
       window.dispatchEvent(new Event("dv-tp-refresh"));
+      tpLogMov([{ t: cup.fecha, curso: cursoNombre, cursoId: perfil.curso, nombre: perfil.nombre, delta: -precio, motivo: "Canje: " + item.label + " · cupón " + cup.code, tipo: "gasto", code: cup.code }]);
       return { ok: true, cup, saldo: c.saldo };
     } catch (e) { return { ok: false, msg: "No se pudo completar el canje. Intenta de nuevo." }; }
   };
@@ -1596,6 +1609,18 @@ function TerrapesosApp() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [tpCuponVer]);
+
+  // Registro de gastos en Movimientos (solo lo ve el profesor). Si falla, no afecta el canje.
+  const tpLogMov = async (entradas) => {
+    try {
+      const nuevo = await tpStorageUpdate(MOVIMIENTOS_KEY, (cur) => {
+        let l = [];
+        try { if (cur) l = JSON.parse(cur); } catch (e) {}
+        return JSON.stringify(recortarMovs([...entradas, ...(Array.isArray(l) ? l : [])]));
+      });
+      if (nuevo) setTpMovs((prev) => (prev ? JSON.parse(nuevo) : prev));
+    } catch (e) {}
+  };
 
   // Estados de canjes antiguos registrados en Movimientos (versión anterior de la tienda).
   const tpEstadoChip = (estado) => (
@@ -1809,9 +1834,13 @@ function TerrapesosApp() {
         const t = new Date(now).toISOString();
         const oferta = { monto, cursoId: tpPerfil.curso, cursoNombre, nombre: tpPerfil.nombre, uid: tpUser.uid, t };
         const s2 = { ...s, oferta, historial: [{ monto, nombre: tpPerfil.nombre, cursoNombre, t }, ...(s.historial || [])].slice(0, 20) };
-        return { data: { ...d2, subastas: subs.map((x) => (x.id === subId ? s2 : x)) }, res: { ok: true } };
+        return { data: { ...d2, subastas: subs.map((x) => (x.id === subId ? s2 : x)) }, res: { ok: true, cobrar, cursoNombre, titulo: s.titulo, superado: top && !mismo ? top : null } };
       });
       if (res && res.ok) {
+        const t = new Date().toISOString();
+        const regs = [{ t, curso: res.cursoNombre, cursoId: tpPerfil.curso, nombre: tpPerfil.nombre, delta: -res.cobrar, motivo: "Oferta en subasta: " + res.titulo + " (oferta " + fmtTp(monto) + ")", tipo: "gasto" }];
+        if (res.superado) regs.push({ t, curso: res.superado.cursoNombre || "", cursoId: res.superado.cursoId, nombre: res.superado.nombre, delta: res.superado.monto, motivo: "Devolución: lo superaron en la subasta " + res.titulo, tipo: "gasto" });
+        tpLogMov(regs);
         decir("¡Vas ganando con " + fmtTp(monto) + "! Si alguien te supera, te devolvemos tus terrapesos.");
         setTpOfertaIn((o) => { const n = { ...o }; delete n[subId]; return n; });
       } else decir((res && res.msg) || "No se pudo ofertar.");
@@ -1854,6 +1883,10 @@ function TerrapesosApp() {
         return { data: { ...d2, subastas: subs.map((x) => (x.id === subId ? { ...x, estado: "cancelada", cerradaEn: ahora } : x)) }, res: s.oferta ? "Subasta cancelada: se devolvieron " + fmtTp(s.oferta.monto) + " a " + s.oferta.nombre + "." : "Subasta cancelada." };
       });
       if (res) setToast(res);
+      if (accion === "cancelar") {
+        const s = (tpData.subastas || []).find((x) => x.id === subId);
+        if (s && s.oferta) tpLogMov([{ t: new Date().toISOString(), curso: s.oferta.cursoNombre || "", cursoId: s.oferta.cursoId, nombre: s.oferta.nombre, delta: s.oferta.monto, motivo: "Devolución: subasta cancelada (" + s.titulo + ")", tipo: "gasto" }]);
+      }
     } catch (e) { setToast("No se pudo guardar. Intenta nuevamente."); }
     finally { setTpBusy(false); }
   };
@@ -2020,6 +2053,119 @@ function TerrapesosApp() {
     );
   };
 
+  /* ============================================================
+     PANEL DOCENTE: cupones canjeados por los estudiantes
+     Para cada estudiante de la lista busca su cuenta (vinculo-…),
+     lee cupones-<uid> y el estado uso-<código>. Solo profesor.
+     ============================================================ */
+  const [tpPanel, setTpPanel] = useState(null); // { cargando, items, error, sinCuenta, ts }
+  const [tpPanelF, setTpPanelF] = useState({ estado: "vigentes", curso: "todos", q: "" });
+  const [tpMovF, setTpMovF] = useState("todos");
+
+  const tpEnLotes = async (lista, n, fn) => {
+    const out = [];
+    for (let i = 0; i < lista.length; i += n) out.push(...(await Promise.all(lista.slice(i, i + n).map(fn))));
+    return out;
+  };
+
+  const tpCargarPanel = async () => {
+    setTpPanel((p) => ({ ...(p || {}), cargando: true, error: "" }));
+    try {
+      const cursos = tpData.estudiantesPorCurso || [];
+      const pares = [];
+      cursos.forEach((c) => c.estudiantes.forEach((e) => pares.push({ cursoId: c.id, cursoNombre: c.nombre, nombre: e.label })));
+      const vinc = await tpEnLotes(pares, 12, async (p) => {
+        try { const r = await window.storage.get(vinculoKey(p.cursoId, p.nombre), true); const v = JSON.parse(r.value); return v && v.uid ? { ...p, uid: v.uid } : null; } catch (e) { return null; }
+      });
+      const uids = new Map();
+      vinc.filter(Boolean).forEach((v) => uids.set(v.uid, v));
+      if (tpUser && tpUser.esAdmin && !uids.has(tpUser.uid)) uids.set(tpUser.uid, { cursoId: TP_CURSO_PRUEBA, cursoNombre: "Pruebas (profe)", nombre: TP_EST_PRUEBA, uid: tpUser.uid });
+      let lecturasFallidas = 0;
+      const porUid = await tpEnLotes([...uids.values()], 10, async (v) => {
+        try {
+          const r = await window.storage.get(cuponesKey(v.uid), true);
+          const d = JSON.parse(r.value);
+          return (d.items || []).map((c) => ({ ...c, uid: v.uid, cursoNombre: c.cursoNombre || v.cursoNombre, curso: c.curso || v.cursoId }));
+        } catch (e) { if (!/nf|not.?found|no existe/i.test(String(e && e.message))) lecturasFallidas++; return []; }
+      });
+      const items = porUid.flat();
+      const conEstado = await tpEnLotes(items, 15, async (c) => {
+        try { const r = await window.storage.get(usoKey(c.code), true); let f = null; try { f = JSON.parse(r.value).fecha; } catch (e) {} return { ...c, usado: true, usadoEn: f }; } catch (e) { return { ...c, usado: false }; }
+      });
+      conEstado.sort((a, b) => Date.parse(b.fecha) - Date.parse(a.fecha));
+      setTpPanel({ cargando: false, items: conEstado, error: "", vinculados: uids.size, total: pares.length, ts: Date.now(),
+        aviso: lecturasFallidas && !conEstado.length ? "No se pudieron leer los cupones. Revisa que hayas entrado con tu correo de profesor." : "" });
+    } catch (e) {
+      setTpPanel({ cargando: false, items: [], error: "No se pudo cargar el panel. Intenta de nuevo." });
+    }
+  };
+  useEffect(() => { if (tpTab === "cupones" && tpEsProfe && !tpPanel) tpCargarPanel(); }, [tpTab, tpEsProfe]);
+
+  const tpMarcarUsado = async (c) => {
+    setTpBusy(true);
+    try {
+      await window.storage.set(usoKey(c.code), JSON.stringify({ code: c.code, fecha: new Date().toISOString() }), true);
+      setTpPanel((p) => ({ ...p, items: p.items.map((x) => (x.code === c.code ? { ...x, usado: true, usadoEn: new Date().toISOString() } : x)) }));
+      setToast("Cupón " + c.code + " marcado como usado ✓");
+    } catch (e) {
+      setToast("No se pudo marcar aquí. Márcalo en el Panel docente de Deusivenatura.");
+    } finally { setTpBusy(false); }
+  };
+
+  const renderPanelCupones = () => {
+    if (!tpEsProfe) return null;
+    const P = tpPanel;
+    const norm = (t) => String(t || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+    const todos = (P && P.items) || [];
+    const vis = todos.filter((c) => (tpPanelF.estado === "todos" || (tpPanelF.estado === "usados" ? c.usado : !c.usado))
+      && (tpPanelF.curso === "todos" || c.curso === tpPanelF.curso)
+      && (!tpPanelF.q || norm(c.nombre + " " + c.label + " " + c.code).includes(norm(tpPanelF.q))));
+    const vigentes = todos.filter((c) => !c.usado);
+    const gastado = todos.reduce((a, c) => a + (Number(c.precio) || 0), 0);
+    const cursos = tpData.estudiantesPorCurso || [];
+    return (
+      <>
+        <div className="pf-tp-col-title">Cupones canjeados</div>
+        <div className="pf-tp-col-desc">Solo tú ves este panel. Muestra los cupones de canjes y subastas de los estudiantes que vincularon su cuenta. Márcalos como usados cuando entregues el beneficio.</div>
+        {!tpUser && tpEditing && <p className="pf-tp-wallet-err">Para leer los cupones necesitas entrar con tu correo de profesor (botón Entrar, arriba).</p>}
+        <div className="pf-tp-panel-stats">
+          <div><span className="n">{P && !P.cargando ? todos.length : "…"}</span><span className="l">cupones</span></div>
+          <div><span className="n gold">{P && !P.cargando ? vigentes.length : "…"}</span><span className="l">por entregar</span></div>
+          <div><span className="n">{P && !P.cargando ? fmtTp(gastado) : "…"}</span><span className="l">terrapesos gastados</span></div>
+          <div><span className="n">{P && !P.cargando ? (P.vinculados || 0) + "/" + (P.total || 0) : "…"}</span><span className="l">cuentas vinculadas</span></div>
+        </div>
+        <div className="pf-tp-panel-filtros">
+          <div className="pf-chip-row" role="group" aria-label="Estado">
+            {[["vigentes", "Por entregar"], ["usados", "Usados"], ["todos", "Todos"]].map(([k, t]) => (
+              <button key={k} className={"pf-chip" + (tpPanelF.estado === k ? " pf-chip-on" : "")} style={{ cursor: "pointer" }} onClick={() => setTpPanelF((f) => ({ ...f, estado: k }))}>{t}</button>
+            ))}
+          </div>
+          <select className="pf-select" value={tpPanelF.curso} onChange={(e) => setTpPanelF((f) => ({ ...f, curso: e.target.value }))} aria-label="Curso">
+            <option value="todos">Todos los cursos</option>
+            {cursos.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+          </select>
+          <input className="pf-input" placeholder="Buscar estudiante, beneficio o código…" value={tpPanelF.q} onChange={(e) => setTpPanelF((f) => ({ ...f, q: e.target.value }))} aria-label="Buscar" />
+          <button className="pf-btn pf-btn-secondary pf-btn-sm" disabled={P && P.cargando} onClick={tpCargarPanel}>{P && P.cargando ? "Cargando…" : "Actualizar"}</button>
+        </div>
+        {P && P.error && <p className="pf-tp-wallet-err" role="alert">{P.error}</p>}
+        {P && P.aviso && <p className="pf-tp-wallet-err" role="alert">{P.aviso}</p>}
+        {P && P.cargando && !todos.length && <p className="pf-muted" style={{ fontSize: 13 }}>Buscando cupones de cada estudiante…</p>}
+        {P && !P.cargando && vis.length === 0 && <p className="pf-muted" style={{ fontSize: 13.5 }}>{todos.length ? "No hay cupones con estos filtros." : "Todavía no hay cupones canjeados."}</p>}
+        {vis.map((c) => (
+          <div className="pf-tp-item" key={c.uid + c.code}>
+            <div className="pf-tp-body">
+              <div className="pf-tp-label">{c.nombre} <span className="pf-muted" style={{ fontSize: 12 }}>· {c.cursoNombre}</span></div>
+              <div className="pf-tp-note">{c.label} · <span className="mono">{c.code}</span> · {fechaLarga(c.fecha)}{c.usado && c.usadoEn ? " · usado " + fechaLarga(c.usadoEn) : ""}</div>
+            </div>
+            <div className="pf-tp-price">{fmtTp(c.precio)}</div>
+            <span className={"pf-tp-estado " + (c.usado ? "devuelto" : "pendiente")} style={{ alignSelf: "center" }}>{c.usado ? <><CheckCircle2 size={11} /> Usado</> : <><Clock size={11} /> Vigente</>}</span>
+            {!c.usado && <button className="pf-tp-buy" disabled={tpBusy} onClick={() => tpMarcarUsado(c)}>Marcar usado</button>}
+          </div>
+        ))}
+      </>
+    );
+  };
+
   const renderTerrapesos = () => {
     const d = tpData;
 
@@ -2072,6 +2218,7 @@ function TerrapesosApp() {
           <button className={"pf-tab" + (tpTab === "multas" ? " active" : "")} onClick={() => setTpTab("multas")}>Multas</button>
           <button className={"pf-tab" + (tpTab === "estudiantes" ? " active" : "")} onClick={() => setTpTab("estudiantes")}>Mis Terrapesos</button>
           <button className={"pf-tab" + (tpTab === "movimientos" ? " active" : "")} onClick={() => setTpTab("movimientos")}>Movimientos</button>
+          {tpEsProfe && <button className={"pf-tab pf-tab-profe" + (tpTab === "cupones" ? " active" : "")} onClick={() => setTpTab("cupones")}>Cupones <span className="pf-tp-profe-tag">profe</span></button>}
         </div>
 
         {tpTab === "cambio" && (
@@ -2112,6 +2259,8 @@ function TerrapesosApp() {
         )}
 
         {tpTab === "subastas" && renderSubastas()}
+
+        {tpTab === "cupones" && renderPanelCupones()}
 
         {tpTab === "ganar" && (
           <>
@@ -2300,14 +2449,25 @@ function TerrapesosApp() {
         {tpTab === "movimientos" && (
           <>
             <div className="pf-tp-col-title">Últimos movimientos</div>
-            <div className="pf-tp-col-desc">Cada vez que se suman, restan o canjean terrapesos queda registrado aquí.</div>
+            <div className="pf-tp-col-desc">Cada vez que se suman o restan terrapesos queda registrado aquí.{tpEsProfe ? " Como profesor, también ves los gastos de los estudiantes (canjes y subastas)." : ""}</div>
+            {tpEsProfe && (
+              <div className="pf-chip-row" role="group" aria-label="Filtrar movimientos" style={{ marginBottom: 10 }}>
+                {[["todos", "Todos"], ["gastos", "Solo gastos"], ["otros", "Premios y multas"]].map(([k, t]) => (
+                  <button key={k} className={"pf-chip" + (tpMovF === k ? " pf-chip-on" : "")} style={{ cursor: "pointer" }} onClick={() => setTpMovF(k)}>{t}</button>
+                ))}
+              </div>
+            )}
             {tpMovs === null && <p className="pf-muted" style={{ fontSize: 13 }}>Cargando…</p>}
             {tpMovs && tpMovs.length === 0 && <p className="pf-muted" style={{ fontSize: 13.5 }}>Todavía no hay movimientos registrados.</p>}
-            {(tpMovs || []).filter((m) => tpEsProfe || (m.cursoId !== TP_CURSO_PRUEBA && m.nombre !== TP_EST_PRUEBA)).map((m, i) => (
+            {(tpMovs || []).filter((m) => {
+              const gasto = m.tipo === "gasto" || m.tipo === "canje";
+              if (!tpEsProfe) return !gasto && m.cursoId !== TP_CURSO_PRUEBA && m.nombre !== TP_EST_PRUEBA;
+              return tpMovF === "todos" || (tpMovF === "gastos" ? gasto : !gasto);
+            }).map((m, i) => (
               <div className="pf-tp-item" key={i}>
                 <div className="pf-tp-body">
                   <div className="pf-tp-label">{m.nombre} <span className="pf-muted" style={{ fontSize: 12 }}>· {m.curso}</span></div>
-                  <div className="pf-tp-note">{new Date(m.t).toLocaleString("es-CL", { dateStyle: "short", timeStyle: "short" })}{m.motivo ? " · " + m.motivo : ""} {m.tipo === "canje" && tpEstadoChip(m.estado)}</div>
+                  <div className="pf-tp-note">{new Date(m.t).toLocaleString("es-CL", { dateStyle: "short", timeStyle: "short" })}{m.motivo ? " · " + m.motivo : ""} {m.tipo === "canje" && tpEstadoChip(m.estado)}{m.tipo === "gasto" && <span className="pf-tp-estado gasto">gasto</span>}</div>
                 </div>
                 <div className="pf-tp-price" style={{ color: m.delta < 0 ? "#FB7185" : "#4ADE80" }}>{m.delta > 0 ? "+" : ""}{fmtTp(m.delta)}</div>
               </div>
